@@ -1,0 +1,64 @@
+experiment_type: neural_mod_shared_preamble_roundtrip
+experiment_id: mod_esp_toy_bps4
+seed: 12
+bps: 4
+
+neural_mod_kwargs:
+  bits_per_symbol: "$bps"
+  activation_fn_hidden: tanh
+  hidden_layers: [40,40]
+  restrict_energy: 1
+  log_std_dict:
+    initial: -1.4
+    max: 1.0
+    min: -3.0
+  lr_dict:
+    mu: 5e-4
+    std: 1e-3
+
+neural_mod_2_kwargs: "$neural_mod_kwargs"
+
+neural_demod_kwargs:
+  bits_per_symbol: "$bps"
+  activation_fn_hidden: relu
+  hidden_layers: [50]
+  lr: 1e-3
+
+neural_demod_2_kwargs: "$neural_demod_kwargs"
+
+classic_agent_sampler_kwargs:
+  bits_per_symbol: "$bps"
+  min_rotation_deg: 30.0
+  max_rotation_deg: 30.0
+  avg_power: 1.0
+
+agent_types:
+  tx_mod: neural
+  tx_demod: neural
+  rx_mod: neural
+  rx_demod: neural
+
+train_kwargs:
+  meta:
+    meta_lr_dict:
+      mod_params: 1e-2
+      mod_lr_mu: 0
+      mod_lr_std: 0
+    num_inner_tasks: 10
+    num_inner_iterations: 20
+    num_iterations_eval: 200
+    num_trials_eval: 25
+    stats_every_eval: 1
+    first_order: false
+    inner_step_meta_grad_weighting: last
+  bits_per_symbol: "$bps"
+  protocol: esp
+  target_ber: 0.01
+  len_preamble: 64
+  len_preamble_eval: 10000
+  plot_initial_eval: false
+  stats_every_train: 50
+  num_iterations_train: 3000
+  checkpoint_every_train: 300
+  optimiser: adam
+  verbose: true
