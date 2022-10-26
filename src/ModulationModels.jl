@@ -31,9 +31,15 @@ rotation_matrix(r) = hcat([cos(r); -sin(r)], [sin(r); cos(r)])
 plain_print_list(l) = "[" * join(l, ",") * "]"
 
 ##################################################################################
+# Abstract Types
+##################################################################################
+abstract type Modulator end
+abstract type Demodulator end
+
+##################################################################################
 # Classic Modulator
 ##################################################################################
-struct ClassicMod
+struct ClassicMod <: Modulator
     bits_per_symbol::Integer
     # This is ALWAYS a 1-element vector.
     # Has to be mutable and held by reference for autodiff
@@ -59,7 +65,7 @@ Flux.@functor ClassicMod (rotation, symbol_map)
 Flux.trainable(m::ClassicMod) = (m.rotation,)
 
 
-get_kwargs(m::ClassicMod; include_weights) = (;
+get_kwargs(m::ClassicMod; include_weights::Bool=false) = (;
     :bits_per_symbol => m.bits_per_symbol,
     :rotation_deg => m.rotation[1] * 180 / pi,
     :avg_power => m.avg_power
@@ -108,7 +114,7 @@ end
 ##################################################################################
 # Classic Demodulator
 ##################################################################################
-struct ClassicDemod
+struct ClassicDemod <: Demodulator
     bits_per_symbol::Integer
     # This is ALWAYS a 1-element vector.
     # Has to be mutable and held by reference for autodiff
@@ -134,7 +140,7 @@ function ClassicDemod(;bits_per_symbol::Integer, rotation_deg::Real=0f0, avg_pow
 end
 
 
-get_kwargs(d::ClassicDemod; include_weights) = (;
+get_kwargs(d::ClassicDemod; include_weights::Bool=false) = (;
     :bits_per_symbol => d.bits_per_symbol,
     :rotation_deg => d.rotation[1] * 180 / pi,
     :avg_power => d.avg_power
@@ -186,7 +192,7 @@ Distributions.logpdf(policy::NeuralModPolicy, x) = logpdf.(policy.symb_policies,
 Base.size(p::NeuralModPolicy) = size(p.symb_policies)
 
 
-struct NeuralMod
+struct NeuralMod <: Modulator
     bits_per_symbol::Integer
     hidden_layers::Vector{<:Integer}
     restrict_energy::Integer
@@ -213,8 +219,8 @@ function NeuralMod(;bits_per_symbol,
                    hidden_layers,
                    restrict_energy=1, activation_fn_hidden=tanh,
                    activation_fn_output=identity, avg_power=1f0,
-                   log_std_dict=(:initial=>-1f0, :max=>1f0, :min=>-3f0),
-                   lr_dict=(:mu=>5f-1, :std=>1f-3),
+                   log_std_dict=(; initial=-1f0, max=1f0, min=-3f0),
+                   lr_dict=(; mu=5f-1, std=1f-3),
                    lambda_prob=1f-6,
                    weights=nothing)
     if isa(activation_fn_hidden, String)
@@ -252,6 +258,7 @@ get_kwargs(m::NeuralMod; include_weights=false) = (;
     :log_std_dict => m.log_std_dict,
     :lr_dict => m.lr_dict,
     :lambda_prob => m.lambda_prob,
+    # TODO: change to new recommended method: deepcopy(m.μ), loadmodel!(m.μ, prevμ)
     :weights => include_weights ? deepcopy(Flux.params(m.μ)) : nothing,
 )
 
@@ -347,6 +354,7 @@ Modulate a bps x N symbol message to cartesian coordinates, with policy explorat
 """
 modulate(m::NeuralMod, symbols::AbstractArray{UInt16}; explore::Bool=false) = modulate(m, Float32.(symbols), explore=explore)
 function modulate(m::NeuralMod, symbols::AbstractArray{Float32}; explore::Bool=false)
+    # TODO: switch to +/-1 symbols
     means = m(symbols)
     if explore
         log_std = clamp.(m.log_std, m.log_std_dict.min, m.log_std_dict.max)
@@ -379,7 +387,7 @@ end
 ##################################################################################
 # Neural Demdulator
 ##################################################################################
-struct NeuralDemod
+struct NeuralDemod <: Demodulator
     bits_per_symbol::Integer
     hidden_layers::Vector{<:Integer}
     activation_fn_hidden::Function
@@ -425,6 +433,7 @@ get_kwargs(d::NeuralDemod; include_weights=false) = (;
     :hidden_layers => d.hidden_layers,
     :activation_fn_hidden => String(Symbol(d.activation_fn_hidden)),
     :lr => d.lr,
+    # TODO: change to new recommended method: deepcopy(d.net), loadmodel!(d.net, prevnet)
     :weights => include_weights ? deepcopy(Flux.params(d.net)) : nothing,
 )
 

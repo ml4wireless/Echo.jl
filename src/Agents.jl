@@ -52,10 +52,10 @@ get_kwargs(a::MixedAgent) = (;
     :demod => get_kwargs(a.demod, include_weights=true),
 )
 
-struct AgentSampler
+struct AgentSampler{M <: Modulator, D <: Demodulator}
     bits_per_symbol::Integer
-    mod_class
-    demod_class
+    mod_class::Type{M}
+    demod_class::Type{D}
     mod_kwargs::NamedTuple
     demod_kwargs::NamedTuple
     min_rotation_deg::Float32
@@ -99,10 +99,7 @@ function Random.rand(rng::AbstractRNG, s::AgentSampler)
     end
 
     # Specialize returned agent type
-    if s.mod_class == NeuralMod && s.demod_class == NeuralDemod
-        return NeuralAgent(s.bits_per_symbol, mod, demod)
-    end
-    return MixedAgent(s.bits_per_symbol, rotation_deg, s.avg_power, mod, demod)
+    return Agent(mod, demod)
 end
 
 
@@ -155,14 +152,20 @@ end
 
 function Agent(mod::MaybeMod, demod::MaybeDMod)
     if isa(mod, MaybeNMod) && isa(demod, MaybeNDMod)
-        return NeuralAgent(mod.bits_per_symbol, mod, demod)
+        agent = NeuralAgent(mod.bits_per_symbol, mod, demod)
     elseif isa(mod, MaybeCMod) && isa(demod, MaybeCDMod)
-        return ClassicAgent(mod.bits_per_symbol, mod.rotation[1] * 180 / pi, mod.avg_power,
+        agent = ClassicAgent(mod.bits_per_symbol, mod.rotation[1] * 180 / pi, mod.avg_power,
                             mod, demod)
     else
-        return MixedAgent(mod.bits_per_symbol, mod.rotation[1] * 180 / pi, mod.avg_power,
+        if isa(mod, MaybeCMod)
+            rotation = mod.rotation[1] * 180 / pi
+        else
+            rotation = demod.rotation[1] * 180 / pi
+        end
+        agent = MixedAgent(mod.bits_per_symbol, rotation, mod.avg_power,
                           mod, demod)
     end
+    agent
 end
 
 function Agent(;mod::Union{NamedTuple, Nothing}, demod::Union{NamedTuple, Nothing}, kwargs...)

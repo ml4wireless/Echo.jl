@@ -1,5 +1,5 @@
 module ResultsUtils
-export loadresults, finalbers, finalagents, reconstruct_epoch, find_3db_off, find_dboff
+export loadresults, finalbers, trainbers, finalagents, reconstruct_epoch, find_3db_off, find_dboff
 
 using BSON
 # Bring Flux and Zygote into module namespace for BSON loading
@@ -9,6 +9,7 @@ using Zygote
 using ..Agents
 using ..Protocols
 using ..LookupTableUtils
+using ..Echo
 
 
 
@@ -34,6 +35,22 @@ end
 function finalbers(results::Dict{Int64, Any})
     efinal = maximum(keys(results))
     results[efinal][:ber]
+end
+
+
+"""
+Return {ht,rt} BERs at a given test SNR through training epochs
+If not `roundtrip``, return the first halftrip BER measurement.
+`column` corresponds to the test SNR, with 5 usually representing target BER 0.01.
+"""
+function trainbers(results::Dict{Int64, Any}; roundtrip::Bool=true, column::Int=5)
+    epochs = sort(collect(keys(results)))
+    bers = Vector{Float32}(undef, length(epochs))
+    irow = roundtrip ? 3 : 1
+    for (i, e) in enumerate(epochs)
+        bers[i] = results[e][:ber][irow, column]
+    end
+    bers
 end
 
 

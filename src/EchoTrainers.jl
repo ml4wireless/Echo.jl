@@ -16,11 +16,11 @@ using ..FluxUtils
 
 
 struct EchoTrainer
-    tx_agent
-    rx_agent
+    tx_agent::Union{MixedAgent, ClassicAgent, NeuralAgent}
+    rx_agent::Union{MixedAgent, ClassicAgent, NeuralAgent}
     # Store simulator_class instead of simulator to allow sampling of agents
-    simulator_class
-    evaluator_class
+    simulator_class::Type
+    evaluator_class::Type
     update_fn!::Function
     roundtrip::Bool
 end
@@ -264,6 +264,7 @@ function train!(trainer::EchoTrainer, train_args)
             if iter % train_args.stats_every_train == 0 || iter == train_args.num_iterations_train
                 val_dict = validate(trainer, train_args.len_preamble_eval, train_args.verbose)
                 val_dict[:t_elapsed] = time() - t0
+                val_dict[:losses] = losses
                 results[iter] = val_dict
             end
             if iter % train_args.checkpoint_every_train == 0
