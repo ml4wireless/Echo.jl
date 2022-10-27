@@ -240,7 +240,8 @@ function train!(trainer::EchoTrainer, train_args)
             [trainer.tx_agent, trainer.rx_agent], get_optimiser_type(train_args.optimiser)
         )
         # Run training loop
-        p = Progress(train_args.num_iterations_train, 0.25)
+        is_logging(io) = isa(io, Base.TTY) == false || (get(ENV, "CI", nothing) == "true")
+        p = Progress(train_args.num_iterations_train, dt=0.25, output=stderr, enabled=!is_logging(stderr))
         generate_showvalues(iter, losses, results, info) = () -> [
             (:iter, iter),
             (:losses, losses),
@@ -273,6 +274,12 @@ function train!(trainer::EchoTrainer, train_args)
             end
             ProgressMeter.next!(p, showvalues=generate_showvalues(iter, losses, results, info))
         end
+        # Print summary statistics
+        elapsed = round(time() - t0, digits=1)
+        fber = round.(results[train_args.num_iterations_train][:ber][:, 5], sigdigits=3)
+        fber = "HT1: $(fber[1]) | HT2: $(fber[2]) | RT: $(fber[3])"
+        println("Finished in $elapsed seconds with final BERs $fber")
+        # Send final results to controlling task
         put!(channel, results)
     end
 end
