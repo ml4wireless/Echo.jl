@@ -8,6 +8,7 @@ export bits_to_symbols, symbols_to_integers, bits_to_integers, integers_to_symbo
 export complex_to_cartesian, cartesian_to_complex
 
 using Random
+using CUDA
 
 
 """
@@ -17,6 +18,17 @@ Each entry is i.i.d Gaussian with mean 0 and standard deviation sqrt(N0/2)
 """
 function get_awgn(N0::Float32, n)
     noise = randn(Float32, (2, n)) .* sqrt(N0 / 2.0f0)
+    noise
+end
+
+
+"""
+N0: Noise power
+n: The shape of the tensor returned is [2,n]
+Each entry is i.i.d Gaussian with mean 0 and standard deviation sqrt(N0/2)
+"""
+function cu_get_awgn(N0::Float32, n)
+    noise = CUDA.randn(Float32, (2, n)) .* sqrt(N0 / 2.0f0)
     noise
 end
 
@@ -40,9 +52,15 @@ signal_power: Signal power in linear scale (Default = 1.0)
 Output:
 data_c_noisy: Noisy modulated symbols where noise such that we get desired SNR_db
 """
-function add_cartesian_awgn(data_c, SNR_db::Float32; signal_power=1f0)
+function add_cartesian_awgn(data_c::Matrix{Float32}, SNR_db::Float32; signal_power=1f0)
     N0 = get_N0(SNR_db, signal_power)
     noise = get_awgn(N0, size(data_c, 2))
+    return data_c .+ noise
+end
+
+function add_cartesian_awgn(data_c::CuArray{Float32, 2}, SNR_db::Float32; signal_power=1f0)
+    N0 = get_N0(SNR_db, signal_power)
+    noise = cu_get_awgn(N0, size(data_c, 2))
     return data_c .+ noise
 end
 
@@ -55,9 +73,17 @@ signal_power: Signal power in linear scale (Default = 1.0)
 Output:
 data_c_noisy: Noisy modulated symbols where noise such that we get desired SNR_db
 """
-function add_complex_awgn(data_c, SNR_db::Float32; signal_power=1f0)
+add_complex_awgn(data_c::Vector{ComplexF32}, SNR_db::F1; signal_power::F2=1f0) where {F1 <: Real, F2 <: Real} = add_complex_awgn(data_c, Float32(SNR_db), signal_power=Float32(signal_power))
+
+function add_complex_awgn(data_c::Vector{ComplexF32}, SNR_db::Float32; signal_power::Float32=1f0)
     N0 = get_N0(SNR_db, signal_power)
     noise = get_awgn(N0, size(data_c, 1))
+    return data_c .+ noise[1, :] .+ 1im .* noise[2, :]
+end
+
+function add_complex_awgn(data_c::CuArray{ComplexF32, 1}, SNR_db::Float32; signal_power::Float32=1f0)
+    N0 = get_N0(SNR_db, signal_power)
+    noise = cu_get_awgn(N0, size(data_c, 1))
     return data_c .+ noise[1, :] .+ 1im .* noise[2, :]
 end
 
@@ -110,8 +136,9 @@ end
 """
 Return integer array of 0-1 of shape [n]
 """
-function get_random_bits(n)
-    rand(UInt16[0 1], (n,))
+function get_random_bits(n; gpu::Bool=false)
+    data = rand(UInt16[0 1], (n,))
+    gpu ? cu(data) : data
 end
 
 
@@ -119,8 +146,9 @@ end
 Generate random data for integer representation of symbols between [0, 2**bits_per_symbol]
 shape [n] --> n random symbols = n*bits_per_symbol random bits
 """
-function get_random_data_si(n, bits_per_symbol)
-    rand(0:2 ^ bits_per_symbol - 1, (n,))
+function get_random_data_si(n, bits_per_symbol; gpu::Bool=false)
+    data = rand(0:2 ^ bits_per_symbol - 1, (n,))
+    gpu ? cu(data) : data
 end
 
 
@@ -128,8 +156,9 @@ end
 Generate random data for bit representation of symbols between [0, 2**bits_per_symbol]
 shape [bits_per_symbol x n] --> n random symbols = n*bits_per_symbol random bits
 """
-function get_random_data_sb(n, bits_per_symbol)
-    rand(UInt16[0 1], (bits_per_symbol, n))
+function get_random_data_sb(n, bits_per_symbol; gpu::Bool=false)
+    data = rand(UInt16[0 1], (bits_per_symbol, n))
+    gpu ? cu(data) : data
 end
 
 
@@ -143,8 +172,6 @@ function get_all_unique_symbols(bits_per_symbol)
 end
 
 
-i2b(int, bits_per_symbol) = [UInt16((int >> n) & 0x1) for n in (bits_per_symbol-1):-1:0]
-
 """
 Converts array of integer representation of bits to an array of bits
 Inputs:
@@ -155,7 +182,11 @@ Output:
 data_b: array of type integer containing 0-1 entries of shape [n=m*bits_per_symbol]
 """
 function integers_to_bits(data_si, bits_per_symbol)
-    reduce(vcat, i2b.(data_si, bits_per_symbol))
+    bits = similar(data_si, length(data_si) * bits_per_symbol)
+    for (offset, shift) in enumerate((bits_per_symbol - 1):-1:0)
+        bits[offset:bits_per_symbol:end] .= (data_si .>> shift) .& 0x1
+    end
+    bits
 end
 
 
@@ -169,7 +200,11 @@ Output:
 data_sb: array of type integer containing 0-1 entries of shape [bits_per_symbol, m]
 """
 function integers_to_symbols(data_si, bits_per_symbol)
-    reduce(hcat, i2b.(data_si, bits_per_symbol))
+    symbs = similar(data_si, (bits_per_symbol, length(data_si)))
+    for (row, shift) in enumerate((bits_per_symbol - 1):-1:0)
+        symbs[row, :] .= (data_si .>> shift) .& 0x1
+    end
+    symbs
 end
 
 

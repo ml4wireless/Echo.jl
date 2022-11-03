@@ -354,7 +354,6 @@ Modulate a bps x N symbol message to cartesian coordinates, with policy explorat
 """
 modulate(m::NeuralMod, symbols::AbstractArray{UInt16}; explore::Bool=false) = modulate(m, Float32.(symbols), explore=explore)
 function modulate(m::NeuralMod, symbols::AbstractArray{Float32}; explore::Bool=false)
-    # TODO: switch to +/-1 symbols
     means = m(2 .* symbols .- 1)
     if explore
         log_std = clamp.(m.log_std, m.log_std_dict.min, m.log_std_dict.max)
