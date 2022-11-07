@@ -136,9 +136,9 @@ end
 """
 Return integer array of 0-1 of shape [n]
 """
-function get_random_bits(n; gpu::Bool=false)
+function get_random_bits(n; cuda::Bool=false)
     data = rand(UInt16[0 1], (n,))
-    gpu ? cu(data) : data
+    cuda ? cu(data) : data
 end
 
 
@@ -146,9 +146,9 @@ end
 Generate random data for integer representation of symbols between [0, 2**bits_per_symbol]
 shape [n] --> n random symbols = n*bits_per_symbol random bits
 """
-function get_random_data_si(n, bits_per_symbol; gpu::Bool=false)
+function get_random_data_si(n, bits_per_symbol; cuda::Bool=false)
     data = rand(0:2 ^ bits_per_symbol - 1, (n,))
-    gpu ? cu(data) : data
+    cuda ? cu(data) : data
 end
 
 
@@ -156,9 +156,9 @@ end
 Generate random data for bit representation of symbols between [0, 2**bits_per_symbol]
 shape [bits_per_symbol x n] --> n random symbols = n*bits_per_symbol random bits
 """
-function get_random_data_sb(n, bits_per_symbol; gpu::Bool=false)
+function get_random_data_sb(n, bits_per_symbol; cuda::Bool=false)
     data = rand(UInt16[0 1], (bits_per_symbol, n))
-    gpu ? cu(data) : data
+    cuda ? cu(data) : data
 end
 
 
@@ -200,6 +200,7 @@ Output:
 data_sb: array of type integer containing 0-1 entries of shape [bits_per_symbol, m]
 """
 function integers_to_symbols(data_si, bits_per_symbol)
+    data_si = convert.(UInt16, data_si)
     symbs = similar(data_si, (bits_per_symbol, length(data_si)))
     for (row, shift) in enumerate((bits_per_symbol - 1):-1:0)
         symbs[row, :] .= (data_si .>> shift) .& 0x1

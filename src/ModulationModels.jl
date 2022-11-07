@@ -39,24 +39,13 @@ abstract type Demodulator end
 ##################################################################################
 # Classic Modulator
 ##################################################################################
-struct ClassicMod <: Modulator
-    bits_per_symbol::Integer
+struct ClassicMod{V <: AbstractVector{Float32}, M <: AbstractMatrix{Float32}} <: Modulator
+    bits_per_symbol::Int
     # This is ALWAYS a 1-element vector.
     # Has to be mutable and held by reference for autodiff
-    rotation::Vector{Float32}
+    rotation::V
     avg_power::Float32
-    symbol_map::Matrix{Float32}
-end
-
-Base.show(io::IO, m::ClassicMod) = @printf(io, "%s(bps=%d, rot=%f)",
-    typeof(m), m.bits_per_symbol, 180/pi*m.rotation[1])
-
-function ClassicMod(;bits_per_symbol::Integer, rotation_deg::Real=0., avg_power::Real=1.)
-    symbol_map = get_symbol_map(bits_per_symbol)
-    # symbol_map = rotation_matrix(rotation) * symbol_map
-    avg_power = mean(sum(abs2.(symbol_map), dims=1))
-    normalization_factor = sqrt((relu(avg_power - avg_power) + avg_power) / avg_power)
-    return ClassicMod(bits_per_symbol, [convert(Float32, pi / 180 * rotation_deg)], avg_power, symbol_map)
+    symbol_map::M
 end
 
 # Only the rotation field of a ClassicMod struct is trainable
@@ -64,12 +53,25 @@ end
 Flux.@functor ClassicMod (rotation, symbol_map)
 Flux.trainable(m::ClassicMod) = (m.rotation,)
 
+Base.show(io::IO, m::ClassicMod) = @printf(io, "%s(bps=%d, rot=%.1f)",
+    typeof(m), m.bits_per_symbol, 180/pi*m.rotation[1])
+
+function ClassicMod(;bits_per_symbol::Integer, rotation_deg::Real=0., avg_power::Real=1.)
+    symbol_map = get_symbol_map(bits_per_symbol)
+    # symbol_map = rotation_matrix(rotation) * symbol_map
+    curr_avg_power = mean(sum(abs2.(symbol_map), dims=1))
+    normalization_factor = sqrt((relu(curr_avg_power - avg_power) + avg_power) / avg_power)
+    return ClassicMod(bits_per_symbol, Float32[convert(Float32, pi / 180 * rotation_deg)], avg_power,
+                      symbol_map .* normalization_factor)
+end
+
 
 get_kwargs(m::ClassicMod; include_weights::Bool=false) = (;
     :bits_per_symbol => m.bits_per_symbol,
     :rotation_deg => m.rotation[1] * 180 / pi,
     :avg_power => m.avg_power
 )
+
 
 """
 Normalize avg power of constellation to avg_power
@@ -114,13 +116,13 @@ end
 ##################################################################################
 # Classic Demodulator
 ##################################################################################
-struct ClassicDemod <: Demodulator
-    bits_per_symbol::Integer
+struct ClassicDemod{V <: AbstractVector{Float32}, M <: AbstractMatrix{Float32}} <: Demodulator
+    bits_per_symbol::Int
     # This is ALWAYS a 1-element vector.
     # Has to be mutable and held by reference for autodiff
-    rotation::Vector{Float32}
-    avg_power::Real
-    symbol_map::Matrix{Float32}
+    rotation::V
+    avg_power::Float32
+    symbol_map::M
 end
 
 # Only the rotation field of a ClassicDemod struct is trainable
@@ -128,15 +130,16 @@ end
 Flux.@functor ClassicDemod (rotation, symbol_map)
 Flux.trainable(d::ClassicDemod) = (d.rotation,)
 
-Base.show(io::IO, d::ClassicDemod) = @printf(io, "%s(bps=%d, rot=%f)",
+Base.show(io::IO, d::ClassicDemod) = @printf(io, "%s(bps=%d, rot=%.1f)",
     typeof(d), d.bits_per_symbol, 180/pi*d.rotation[1])
 
 function ClassicDemod(;bits_per_symbol::Integer, rotation_deg::Real=0f0, avg_power::Real=1.)
     symbol_map = get_symbol_map(bits_per_symbol)
     # symbol_map = rotation_matrix(rotation) * symbol_map
-    avg_power = mean(sum(abs2.(symbol_map), dims=1))
-    normalization_factor = sqrt((relu(avg_power - avg_power) + avg_power) / avg_power)
-    return ClassicDemod(bits_per_symbol, [convert(Float32, pi / 180 * rotation_deg)], avg_power, symbol_map)
+    curr_avg_power = mean(sum(abs2.(symbol_map), dims=1))
+    normalization_factor = sqrt((relu(curr_avg_power - avg_power) + avg_power) / avg_power)
+    return ClassicDemod(bits_per_symbol, [convert(Float32, pi / 180 * rotation_deg)], avg_power,
+                        symbol_map .* normalization_factor)
 end
 
 
@@ -145,6 +148,7 @@ get_kwargs(d::ClassicDemod; include_weights::Bool=false) = (;
     :rotation_deg => d.rotation[1] * 180 / pi,
     :avg_power => d.avg_power
 )
+
 
 """
 Inputs:
@@ -182,25 +186,26 @@ end
 ##################################################################################
 # Neural Modulator
 ##################################################################################
-mutable struct NeuralModPolicy
-    symb_policies::Matrix{Normal}
+mutable struct NeuralModPolicy{A <: AbstractArray{Normal{Float32}}}
+    symb_policies::A
 end
 
-NeuralModPolicy() = NeuralModPolicy(Matrix{Normal}(undef, 0, 0))
+Flux.@functor NeuralModPolicy (symb_policies,)
+NeuralModPolicy() = NeuralModPolicy(Matrix{Normal{Float32}}(undef, 0, 0))
 Random.rand(rng::AbstractRNG, policy::NeuralModPolicy) = rand.(rng, policy.symb_policies)
 Distributions.logpdf(policy::NeuralModPolicy, x) = logpdf.(policy.symb_policies, x)
 Base.size(p::NeuralModPolicy) = size(p.symb_policies)
 
 
-struct NeuralMod <: Modulator
-    bits_per_symbol::Integer
+struct NeuralMod{A <: AbstractVector{Float32}} <: Modulator
+    bits_per_symbol::Int
     hidden_layers::Vector{<:Integer}
-    restrict_energy::Integer
+    restrict_energy::Int
     activation_fn_hidden::Function
     activation_fn_output::Function
     avg_power::Float32
     μ::Flux.Chain
-    log_std::Vector{Float32}
+    log_std::A
     policy::NeuralModPolicy
     log_std_dict::NamedTuple  # min, max, initial
     lr_dict::NamedTuple  # mu, std
@@ -209,7 +214,8 @@ struct NeuralMod <: Modulator
 end
 
 # Only the μ and log_std fields of a NeuralMod struct are trainable
-Flux.@functor NeuralMod (μ, log_std)
+Flux.@functor NeuralMod (μ, log_std, policy)
+Flux.trainable(m::NeuralMod) = (m.μ, m.log_std)
 
 Base.show(io::IO, m::NeuralMod) = @printf(io, "%s(bps=%d, hl=%s, actv_fn=%s, re=%d)",
     typeof(m), m.bits_per_symbol, plain_print_list(m.hidden_layers),
@@ -387,7 +393,7 @@ end
 # Neural Demdulator
 ##################################################################################
 struct NeuralDemod <: Demodulator
-    bits_per_symbol::Integer
+    bits_per_symbol::Int
     hidden_layers::Vector{<:Integer}
     activation_fn_hidden::Function
     activation_fn_output::Function
@@ -397,7 +403,7 @@ struct NeuralDemod <: Demodulator
 end
 
 # Only the net field of a NeuralDemod struct is trainable
-Flux.trainable(d::NeuralDemod) = (d.net,)
+Flux.@functor NeuralDemod (net,)
 
 Base.show(io::IO, d::NeuralDemod) = @printf(io, "%s(bps=%d, hl=%s, actv_fn=%s)",
     typeof(d), d.bits_per_symbol, plain_print_list(d.hidden_layers),

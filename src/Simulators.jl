@@ -46,36 +46,36 @@ struct PrivatePreambleSimulator{A1 <: Agent, A2 <: Agent} <: Simulator
 end
 
 
-struct RTResults
-    preamble1::Array{UInt16,2}
-    preamble2::Array{UInt16,2}
+struct RTResults{F <: AbstractArray{Float32}, U <: AbstractArray{UInt16}}
+    preamble1::U
+    preamble2::U
     # First half-trip data for loss calculations
-    m1_actions::Array{Float32,2}
-    d2_logits::Array{Float32,2}
-    d2_ht_symbs::Array{UInt16,2}
+    m1_actions::F
+    d2_logits::F
+    d2_ht_symbs::U
     # Second half-trip data for loss calculations
-    m2_actions::Array{Float32,2}
-    d1_logits::Array{Float32,2}
-    d1_ht_symbs::Array{UInt16,2}
-    d1_rt_logits::Array{Float32,2}
-    d1_rt_symbs::Array{UInt16,2}
+    m2_actions::F
+    d1_logits::F
+    d1_ht_symbs::U
+    d1_rt_logits::F
+    d1_rt_symbs::U
     # Final half-trip for m2 (EPP: d1, d2) update
-    d2_rt_logits::Array{Float32,2}
-    d2_rt_symbs::Array{UInt16,2}
+    d2_rt_logits::F
+    d2_rt_symbs::U
 end
 
 
-struct HTResults
-    preamble::Array{UInt16,2}
+struct HTResults{F <: AbstractArray{Float32}, U <: AbstractArray{UInt16}}
+    preamble::U
     # First half-trip data for loss calculations
-    m1_actions::Array{Float32,2}
-    d2_logits::Array{Float32,2}
-    d2_symbs::Array{UInt16,2}
+    m1_actions::F
+    d2_logits::F
+    d2_symbs::U
 end
 
 
-function simulate_half_trip(a1, a2, bits_per_symbol, len_preamble, SNR_db, explore::Bool=true)::HTResults
-    preamble = @ignore_derivatives get_random_data_sb(len_preamble, bits_per_symbol)
+function simulate_half_trip(a1, a2, bits_per_symbol, len_preamble, SNR_db, explore::Bool=true; cuda::Bool=false)::HTResults
+    preamble = @ignore_derivatives get_random_data_sb(len_preamble, bits_per_symbol, cuda=cuda)
     # Forward
     m1_actions = modulate(a1.mod, preamble, explore=explore)
     m1_actions_noisy = @ignore_derivatives add_cartesian_awgn(m1_actions, SNR_db, signal_power=1f0)
@@ -86,9 +86,9 @@ end
 
 
 function simulate_round_trip(a1, a2, bits_per_symbol, len_preamble, SNR_db, explore::Bool=true;
-                             final_halftrip::Bool=true, shared_preamble::Bool=true)::RTResults
-    preamble1 = @ignore_derivatives get_random_data_sb(len_preamble, bits_per_symbol)
-    preamble2 = @ignore_derivatives shared_preamble ? preamble1 : get_random_data_sb(len_preamble, bits_per_symbol)
+                             final_halftrip::Bool=true, shared_preamble::Bool=true, cuda::Bool=false)::RTResults
+    preamble1 = @ignore_derivatives get_random_data_sb(len_preamble, bits_per_symbol, cuda=cuda)
+    preamble2 = @ignore_derivatives shared_preamble ? preamble1 : get_random_data_sb(len_preamble, bits_per_symbol, cuda=cuda)
     # Forward
     m1_actions = modulate(a1.mod, preamble1, explore=explore)
     m1_actions_noisy = @ignore_derivatives add_cartesian_awgn(m1_actions, SNR_db, signal_power=1f0)
@@ -111,8 +111,8 @@ function simulate_round_trip(a1, a2, bits_per_symbol, len_preamble, SNR_db, expl
         d2_rt_logits = demodulate(a2.demod, m1_actions_rt_noisy, soft=true)
         d2_rt_sb = logits_to_symbols_sb(d2_rt_logits, bits_per_symbol)
     else
-        d2_rt_logits = Array{Float32,2}(undef, (0, 0))
-        d2_rt_sb = Array{Float32,2}(undef, (0, 0))
+        d2_rt_logits = similar(d1_rt_logits, (0, 0))
+        d2_rt_sb = similar(d1_rt_sb, (0, 0))
     end
 
     RTResults(preamble1, preamble2,
@@ -122,19 +122,21 @@ function simulate_round_trip(a1, a2, bits_per_symbol, len_preamble, SNR_db, expl
 end
 
 
-function simulate(sim::GradientPassingSimulator, SNR_db::Float32; explore::Bool=false, swapagents::Bool=false) end
-function simulate(sim::LossPassingSimulator, SNR_db::Float32; explore::Bool=false, swapagents::Bool=false)
+function simulate(sim::GradientPassingSimulator, SNR_db::Float32; explore::Bool=false, swapagents::Bool=false, cuda::Bool=false) end
+function simulate(sim::LossPassingSimulator, SNR_db::Float32; explore::Bool=false, swapagents::Bool=false, cuda::Bool=false)
     A = swapagents ? sim.agent2 : sim.agent1
     B = swapagents ? sim.agent1 : sim.agent2
-    simulate_half_trip(A, B, sim.bits_per_symbol, sim.len_preamble, SNR_db, explore)
+    simulate_half_trip(A, B, sim.bits_per_symbol, sim.len_preamble, SNR_db, explore; cuda=cuda)
 end
 
 function simulate(sim::SharedPreambleSimulator, SNR_db::Float32; explore::Bool=false)
-    simulate_round_trip(sim.agent1, sim.agent2, sim.bits_per_symbol, sim.len_preamble, SNR_db, explore; final_halftrip=true, shared_preamble=true)
+    simulate_round_trip(sim.agent1, sim.agent2, sim.bits_per_symbol, sim.len_preamble, SNR_db, explore;
+                        final_halftrip=true, shared_preamble=true, cuda=cuda)
 end
 
 function simulate(sim::PrivatePreambleSimulator, SNR_db::Float32; explore::Bool=false)
-    simulate_round_trip(sim.agent1, sim.agent2, sim.bits_per_symbol, sim.len_preamble, SNR_db, explore; final_halftrip=true, shared_preamble=false)
+    simulate_round_trip(sim.agent1, sim.agent2, sim.bits_per_symbol, sim.len_preamble, SNR_db, explore;
+                        final_halftrip=true, shared_preamble=false, cuda=cuda)
 end
 
 

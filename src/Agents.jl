@@ -141,7 +141,7 @@ function ClassicAgentSampler(;bits_per_symbol, min_rotation_deg=0f0, max_rotatio
 end
 
 function Random.rand(rng::AbstractRNG, s::ClassicAgentSampler)
-    rotation_deg = rand(rng) * (s.max_rotation_deg - s.min_rotation_deg) + s.min_rotation_deg
+    rotation_deg = Float32(rand(rng) * (s.max_rotation_deg - s.min_rotation_deg) + s.min_rotation_deg)
     mod = ClassicMod(bits_per_symbol=s.bits_per_symbol, rotation_deg=rotation_deg, avg_power=s.avg_power)
     demod = ClassicDemod(bits_per_symbol=s.bits_per_symbol, rotation_deg=rotation_deg, avg_power=s.avg_power)
     ClassicAgent(s.bits_per_symbol, rotation_deg, s.avg_power, mod, demod)

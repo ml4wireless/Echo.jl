@@ -149,7 +149,7 @@ symbol_maps[4] = permutedims(
     (2, 1))
 
 
-function get_symbol_map(bits_per_symbol)
+function get_symbol_map(bits_per_symbol)::Matrix{Float32}
     return symbol_maps[bits_per_symbol]
 end
 
@@ -163,7 +163,7 @@ N0: Float np.array or constant.
 Outputs:
 EbN0: EbN0 in decibels.
 """
-function calc_EbN0(modulator, N0)
+function calc_EbN0(modulator, N0)::Float32
     symbols_i = 0:((2 ^ modulator.bits_per_symbol) - 1)
     constellation = modulator(symbols_i)
     Es = sum(abs2(constellation)) / length(constellation)
@@ -182,7 +182,7 @@ EbN0: Float np.array or constant.
 Outputs:
 N0: N0 values
 """
-function calc_N0(modulator, EbN0)
+function calc_N0(modulator, EbN0)::Float32
     symbols_i = 0:((2 ^ modulator.bits_per_symbol) - 1)
     constellation = modulator(symbols_i)
     Es = sum(abs2(constellation)) / length(constellation)
