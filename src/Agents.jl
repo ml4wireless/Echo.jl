@@ -1,13 +1,15 @@
 module Agents
 export Agent, ClassicAgent, NeuralAgent, MixedAgent
 export ClassicAgentSampler, AgentSampler
-export get_kwargs
+export get_kwargs, iscuda
 
 using ..ModulationModels
 import .ModulationModels.get_kwargs
+import .ModulationModels.iscuda
 
 using Random
 import Random.rand
+using Flux: @functor
 
 MaybeCMod = Union{ClassicMod, Nothing}
 MaybeNMod = Union{NeuralMod, Nothing}
@@ -16,7 +18,7 @@ MaybeCDMod = Union{ClassicDemod, Nothing}
 MaybeNDMod = Union{NeuralDemod, Nothing}
 MaybeDMod = Union{NeuralDemod, ClassicDemod, Nothing}
 
-get_kwargs(::Nothing; include_weights) = (;)
+get_kwargs(::Nothing; include_weights=false) = (;)
 kwarg_types(args) = tuple(pairzip(typeof.(keys(args)), typeof.(values(args)))...)
 
 abstract type Agent end
@@ -29,6 +31,8 @@ struct NeuralAgent <: Agent
     mod::MaybeNMod
     demod::MaybeNDMod
 end
+
+@functor NeuralAgent (mod, demod)
 
 get_kwargs(a::NeuralAgent) = (;
     :bits_per_symbol => a.bits_per_symbol,
@@ -44,6 +48,8 @@ struct MixedAgent <: Agent
     demod::MaybeDMod
 end
 
+@functor MixedAgent (mod, demod)
+
 get_kwargs(a::MixedAgent) = (;
     :bits_per_symbol => a.bits_per_symbol,
     :rotation_deg => a.rotation_deg,
@@ -54,8 +60,8 @@ get_kwargs(a::MixedAgent) = (;
 
 struct AgentSampler{M <: Modulator, D <: Demodulator}
     bits_per_symbol::Integer
-    mod_class::Type{M}
-    demod_class::Type{D}
+    mod_class::Union{Type{M}, Nothing}
+    demod_class::Union{Type{D}, Nothing}
     mod_kwargs::NamedTuple
     demod_kwargs::NamedTuple
     min_rotation_deg::Float32
@@ -76,7 +82,9 @@ get_kwargs(a::AgentSampler) = (;
 )
 
 function AgentSampler(;bits_per_symbol, mod_class, demod_class, mod_kwargs=NamedTuple(), demod_kwargs=NamedTuple(), min_rotation_deg=0f0, max_rotation_deg=Float32(2pi), avg_power=1f0)
-    AgentSampler(bits_per_symbol, mod_class, demod_class, mod_kwargs, demod_kwargs, min_rotation_deg, max_rotation_deg, avg_power)
+    MC = mod_class === nothing ? Modulator : mod_class
+    DC = demod_class === nothing ? Demodulator : demod_class
+    AgentSampler{MC, DC}(bits_per_symbol, mod_class, demod_class, mod_kwargs, demod_kwargs, min_rotation_deg, max_rotation_deg, avg_power)
 end
 
 function Random.rand(rng::AbstractRNG, s::AgentSampler)
@@ -113,6 +121,8 @@ struct ClassicAgent <: Agent
     mod::MaybeCMod
     demod::MaybeCDMod
 end
+
+@functor ClassicAgent (mod, demod)
 
 get_kwargs(a::ClassicAgent) = (;
     :bits_per_symbol => a.bits_per_symbol,
@@ -154,8 +164,11 @@ function Agent(mod::MaybeMod, demod::MaybeDMod)
     if isa(mod, MaybeNMod) && isa(demod, MaybeNDMod)
         agent = NeuralAgent(mod.bits_per_symbol, mod, demod)
     elseif isa(mod, MaybeCMod) && isa(demod, MaybeCDMod)
-        agent = ClassicAgent(mod.bits_per_symbol, mod.rotation[1] * 180 / pi, mod.avg_power,
-                            mod, demod)
+        bps = mod === nothing ? demod.bits_per_symbol : mod.bits_per_symbol
+        rotation = mod === nothing ? demod.rotation : mod.rotation
+        avg_power = mod === nothing ? demod.avg_power : mod.avg_power
+        agent = ClassicAgent(bps, rotation[1] * 180 / pi, avg_power,
+                             mod, demod)
     else
         if isa(mod, MaybeCMod)
             rotation = mod.rotation[1] * 180 / pi
@@ -163,7 +176,7 @@ function Agent(mod::MaybeMod, demod::MaybeDMod)
             rotation = demod.rotation[1] * 180 / pi
         end
         agent = MixedAgent(mod.bits_per_symbol, rotation, mod.avg_power,
-                          mod, demod)
+                           mod, demod)
     end
     agent
 end
@@ -173,6 +186,9 @@ function Agent(;mod::Union{NamedTuple, Nothing}, demod::Union{NamedTuple, Nothin
     newdemod = Demodulator(; demod...)
     Agent(newmod, newdemod)
 end
+
+
+iscuda(a::Agent) = iscuda(a.mod)
 
 
 end

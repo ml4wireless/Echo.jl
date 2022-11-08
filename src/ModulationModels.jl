@@ -1,19 +1,20 @@
 module ModulationModels
 export ClassicMod, ClassicDemod
 export NeuralMod, NeuralDemod
-export modulate, demodulate, isclassic, ismod, loss
+export modulate, demodulate, isclassic, ismod, iscuda, loss
 export get_kwargs, Modulator, Demodulator
 
 
 push!(LOAD_PATH, "./")
 
-using Statistics
+using CUDA: CuArray
 using Distributions
-using Printf
-using Random
 using Flux
 using Flux: unsqueeze
 using ChainRules: @ignore_derivatives, ignore_derivatives
+using Printf
+using Random
+using Statistics
 
 using ..ModulationUtils
 using ..DataUtils
@@ -158,7 +159,11 @@ Output:
 logits: negative squared error w.r.t. constellation points
 """
 function (d::ClassicDemod)(iq)
-    rmap = rotation_matrix(d.rotation[1]) * d.symbol_map
+    rmatrix = rotation_matrix(d.rotation[1])
+    if iscuda(d)
+        rmatrix = gpu(rmatrix)
+    end
+    rmap = rmatrix * d.symbol_map
     dist = sum(abs2.(unsqueeze(iq, 2) .- rmap), dims=1)
     dist = dropdims(dist, dims=1)
     logits = -dist
@@ -197,7 +202,7 @@ Distributions.logpdf(policy::NeuralModPolicy, x) = logpdf.(policy.symb_policies,
 Base.size(p::NeuralModPolicy) = size(p.symb_policies)
 
 
-struct NeuralMod{A <: AbstractVector{Float32}} <: Modulator
+struct NeuralMod{A <: AbstractVector{Float32}, U <: AbstractMatrix{UInt16}} <: Modulator
     bits_per_symbol::Int
     hidden_layers::Vector{<:Integer}
     restrict_energy::Int
@@ -209,12 +214,12 @@ struct NeuralMod{A <: AbstractVector{Float32}} <: Modulator
     policy::NeuralModPolicy
     log_std_dict::NamedTuple  # min, max, initial
     lr_dict::NamedTuple  # mu, std
-    all_unique_symbols::Array{UInt16, 2}
+    all_unique_symbols::U
     lambda_prob::Float32  # For numerical stability while computing pg loss
 end
 
 # Only the μ and log_std fields of a NeuralMod struct are trainable
-Flux.@functor NeuralMod (μ, log_std, policy)
+Flux.@functor NeuralMod (μ, log_std, policy, all_unique_symbols)
 Flux.trainable(m::NeuralMod) = (m.μ, m.log_std)
 
 Base.show(io::IO, m::NeuralMod) = @printf(io, "%s(bps=%d, hl=%s, actv_fn=%s, re=%d)",
@@ -262,10 +267,10 @@ get_kwargs(m::NeuralMod; include_weights=false) = (;
     :activation_fn_hidden => String(Symbol(m.activation_fn_hidden)),
     :avg_power => m.avg_power,
     :log_std_dict => m.log_std_dict,
-    :lr_dict => m.lr_dict,
+    :lr_dict => cpu(m.lr_dict),
     :lambda_prob => m.lambda_prob,
     # TODO: change to new recommended method: deepcopy(m.μ), loadmodel!(m.μ, prevμ)
-    :weights => include_weights ? deepcopy(Flux.params(m.μ)) : nothing,
+    :weights => include_weights ? deepcopy(Flux.params(cpu(m.μ))) : nothing,
 )
 
 
@@ -439,7 +444,7 @@ get_kwargs(d::NeuralDemod; include_weights=false) = (;
     :activation_fn_hidden => String(Symbol(d.activation_fn_hidden)),
     :lr => d.lr,
     # TODO: change to new recommended method: deepcopy(d.net), loadmodel!(d.net, prevnet)
-    :weights => include_weights ? deepcopy(Flux.params(d.net)) : nothing,
+    :weights => include_weights ? deepcopy(Flux.params(cpu(d.net))) : nothing,
 )
 
 
@@ -518,5 +523,10 @@ isclassic(::Any) = false
 ismod(::ClassicMod) = true
 ismod(::NeuralMod) = true
 ismod(::Any) = false
+
+iscuda(m::ClassicMod) = isa(m.rotation, CuArray)
+iscuda(m::NeuralMod) = isa(m.log_std, CuArray)
+iscuda(d::ClassicDemod) = isa(d.rotation, CuArray)
+iscuda(d::NeuralDemod) = isa(d.net[1].weight, CuArray)
 
 end

@@ -4,9 +4,10 @@ export ExperimentConfig
 export run_experiment, run_experiment_meta
 export get_mod, get_demod, get_opp_mod, get_opp_demod, reconstruct_agents
 
-using BSON
-using Random
 using Accessors
+using BSON
+using Flux: gpu
+using Random
 
 using ..ModulationModels
 using ..Agents
@@ -30,9 +31,10 @@ struct ExperimentConfig
     config::NamedTuple
     results_dir::String
     bps::Int
+    cuda::Bool
 end
 
-ExperimentConfig(config::NamedTuple, results_dir::String="./results") = ExperimentConfig(config, results_dir, config.train_kwargs.bits_per_symbol)
+ExperimentConfig(config::NamedTuple, results_dir::String="./results"; cuda::Bool=false) = ExperimentConfig(config, results_dir, config.train_kwargs.bits_per_symbol, cuda)
 
 Base.show(io::IO, cfg::ExperimentConfig) = print(io, "ExperimentConfig($(cfg.config.experiment_type), $(cfg.config.experiment_id), $(cfg.results_dir))")
 
@@ -74,8 +76,13 @@ function run_experiment(expmt::ExperimentConfig; save_results::Bool=true, noreru
         demod_kwargs=expmt.config.neural_demod_2_kwargs;
         expmt.config.classic_agent_sampler_kwargs...
     )
-    trainer = EchoTrainer(rand(tx_agent_sampler), rand(rx_agent_sampler), shared_or_grad=gp_or_esp, roundtrip=esp_or_epp)
-    channel = EchoTrainers.train!(trainer, expmt.config.train_kwargs,)
+    tx, rx = rand(tx_agent_sampler), rand(rx_agent_sampler)
+    if expmt.cuda
+        tx = gpu(tx)
+        rx = gpu(rx)
+    end
+    trainer = EchoTrainer(tx, rx, shared_or_grad=gp_or_esp, roundtrip=esp_or_epp)
+    channel = EchoTrainers.train!(trainer, expmt.config.train_kwargs)
     results = nothing
     for msg in channel
         results = msg

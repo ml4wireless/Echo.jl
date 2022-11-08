@@ -235,7 +235,7 @@ function train!(trainer::EchoTrainer, train_args)
             SNR_db = get_optimal_SNR_for_BER(train_args.target_ber, bps)
         end
         # Per-model and separate mu & log_std optimizers for individual learning rates
-        simulator = trainer.simulator_class(trainer.tx_agent, trainer.rx_agent, bps, train_args.len_preamble)
+        simulator = trainer.simulator_class(trainer.tx_agent, trainer.rx_agent, bps, train_args.len_preamble, iscuda(trainer.tx_agent))
         optims, optim_models, all_params, indiv_params = get_optimisers_params(
             [trainer.tx_agent, trainer.rx_agent], get_optimiser_type(train_args.optimiser)
         )

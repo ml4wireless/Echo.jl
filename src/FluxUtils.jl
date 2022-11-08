@@ -191,7 +191,8 @@ end
 Convert logits to 0-indexed integers for symbol values
 """
 function logits_to_symbols_si(logits)
-    argmax.(eachcol(logits)) .- 1
+    symbs_si = getindex.(argmax(logits, dims=1), 1) .- 1
+    dropdims(symbs_si, dims=1)
 end
 
 

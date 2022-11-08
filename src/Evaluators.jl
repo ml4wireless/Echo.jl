@@ -1,8 +1,9 @@
 module Evaluators
 export Evaluator, MetaEvaluator, evaluate
 
-using ..Simulators
 using ..LookupTableUtils
+using ..Agents: iscuda
+using ..Simulators
 
 
 struct Evaluator
@@ -25,7 +26,7 @@ function evaluate(ev::Evaluator; len_preamble)
     else
         test_SNRs = get_test_SNR_dbs(ev.agent1.bits_per_symbol)
     end
-    simulator = ev.simulator_class(ev.agent1, ev.agent2, ev.agent1.bits_per_symbol, len_preamble)
+    simulator = ev.simulator_class(ev.agent1, ev.agent2, ev.agent1.bits_per_symbol, len_preamble, iscuda(ev.agent1))
     ber_array = Array{Float32}(undef, (3, length(test_SNRs)))
     for (i, snr) in enumerate(test_SNRs)
         results = compute_ber_htrt(simulator, snr)
