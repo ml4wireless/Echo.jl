@@ -7,7 +7,7 @@ export get_kwargs, Modulator, Demodulator
 
 push!(LOAD_PATH, "./")
 
-using CUDA: CuArray
+using CUDA: CuArray, Mem.DeviceBuffer as DeviceBuffer, randn as curandn
 using Distributions
 using Flux
 using Flux: unsqueeze
@@ -16,12 +16,20 @@ using Printf
 using Random
 using Statistics
 
+# using InteractiveUtils: @code_warntype
+
 using ..ModulationUtils
 using ..DataUtils
 using ..FluxUtils
 
 import Random.rand
 import Distributions.logpdf
+
+
+CV32 = CuArray{Float32, 1, DeviceBuffer}
+CM32 = CuArray{Float32, 2, DeviceBuffer}
+V32 = Vector{Float32}
+M32 = Matrix{Float32}
 
 # Helpers
 
@@ -100,7 +108,11 @@ Modulate a bps x N symbol message to cartesian coordinates
 """
 function (m::ClassicMod)(message)
     inds = symbols_to_integers(message)
-    rmap = rotation_matrix(m.rotation[1]) * m.symbol_map
+    rmatrix = rotation_matrix(m.rotation[1])
+    if iscuda(m)
+        rmatrix = gpu(rmatrix)
+    end
+    rmap = rmatrix * m.symbol_map
     norm_map = normalize_constellation(m, rmap)
     return norm_map[:, inds .+ 1]
 end
@@ -191,15 +203,23 @@ end
 ##################################################################################
 # Neural Modulator
 ##################################################################################
-mutable struct NeuralModPolicy{A <: AbstractArray{Normal{Float32}}}
-    symb_policies::A
+mutable struct NeuralModPolicy{M <: AbstractMatrix{Float32}, V <: AbstractVector{Float32}}
+    means::M
+    stds::V
 end
 
-Flux.@functor NeuralModPolicy (symb_policies,)
-NeuralModPolicy() = NeuralModPolicy(Matrix{Normal{Float32}}(undef, 0, 0))
-Random.rand(rng::AbstractRNG, policy::NeuralModPolicy) = rand.(rng, policy.symb_policies)
-Distributions.logpdf(policy::NeuralModPolicy, x) = logpdf.(policy.symb_policies, x)
-Base.size(p::NeuralModPolicy) = size(p.symb_policies)
+Flux.@functor NeuralModPolicy (means, stds)
+NeuralModPolicy() = NeuralModPolicy(M32(undef, 0, 0), V32(undef, 0))
+# TODO: separate CUDA & CPU versions of rand, logpdf
+Random.rand(rng::AbstractRNG, policy::NeuralModPolicy{M32, V32}) = randn(rng, Float32, size(policy)) .* policy.stds .+ policy.means
+Random.rand(policy::NeuralModPolicy{CM32, CV32}) = curandn(Float32, size(policy)) .* policy.stds .+ policy.means
+
+const log2π::Float32 = Float32(log(2π))
+function normallogpdf(x, μ, σ)
+    @. -(((x - μ) / σ)^2 + log2π) / 2 - log(σ)
+end
+logpdf(policy::NeuralModPolicy, x) = normallogpdf(x, policy.means, policy.stds)
+Base.size(p::NeuralModPolicy) = size(p.means)
 
 
 struct NeuralMod{A <: AbstractVector{Float32}, U <: AbstractMatrix{UInt16}} <: Modulator
@@ -284,11 +304,11 @@ Outputs:
 normalized means
 """
 function normalize_constellation(mod::NeuralMod, means)
-    avg_power = mean(sum(abs2.(mod.μ(mod.all_unique_symbols)), dims=1))
-    if mod.avg_power > 0.
+    avg_power = mean(sum(abs2.(mod.μ(2 .* Float32.(mod.all_unique_symbols) .- 1)), dims=1))
+    if mod.avg_power > 0f0
         norm_factor = sqrt((relu(avg_power - mod.avg_power) + mod.avg_power) / mod.avg_power)
     else
-        norm_factor = one(means[1])  # Automatically match type of means elements
+        norm_factor = one(eltype(means))  # Automatically match type of means elements
     end
     means = means ./ norm_factor
     means
@@ -332,7 +352,7 @@ Outputs:
 centered then normalized means
 """
 function center_and_normalize_constellation(mod::NeuralMod, means)
-    centered_constellation = center_means(mod.μ(mod.all_unique_symbols))
+    centered_constellation = center_means(mod.μ(2 .* Float32.(mod.all_unique_symbols) .- 1))
     avg_power = mean(sum(abs2.(centered_constellation), dims=1))
     if mod.avg_power > 0.
         norm_factor = sqrt((relu(avg_power - mod.avg_power) + mod.avg_power) / mod.avg_power)
@@ -355,6 +375,8 @@ function (m::NeuralMod)(symbols::AbstractArray{Float32})
         means = normalize_symbols(m, means)
     elseif m.restrict_energy == 3
         means = center_and_normalize_constellation(m, means)
+    else
+        error("Unknown restrict_energy $(m.restrict_energy)")
     end
     means
 end
@@ -363,13 +385,16 @@ end
 """
 Modulate a bps x N symbol message to cartesian coordinates, with policy exploration
 """
-modulate(m::NeuralMod, symbols::AbstractArray{UInt16}; explore::Bool=false) = modulate(m, Float32.(symbols), explore=explore)
+modulate(m::NeuralMod, symbols::AbstractArray{UInt16}; explore::Bool=false) = modulate(m, 2 .* Float32.(symbols) .- 1, explore=explore)
 function modulate(m::NeuralMod, symbols::AbstractArray{Float32}; explore::Bool=false)
-    means = m(2 .* symbols .- 1)
+    means = m(symbols)
     if explore
         log_std = clamp.(m.log_std, m.log_std_dict.min, m.log_std_dict.max)
-        m.policy.symb_policies = Normal.(means, exp.(reshape(log_std, (:, 1))))
-        cartesian_points = ignore_derivatives(rand(m.policy))
+        m.policy.means = means
+        m.policy.stds = exp.(log_std)
+        cartesian_points = ignore_derivatives() do
+            rand(m.policy)
+        end
     else
         cartesian_points = means
     end

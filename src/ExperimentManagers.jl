@@ -6,6 +6,7 @@ export get_mod, get_demod, get_opp_mod, get_opp_demod, reconstruct_agents
 
 using Accessors
 using BSON
+using CUDA: @allowscalar
 using Flux: gpu
 using Random
 
@@ -78,8 +79,8 @@ function run_experiment(expmt::ExperimentConfig; save_results::Bool=true, noreru
     )
     tx, rx = rand(tx_agent_sampler), rand(rx_agent_sampler)
     if expmt.cuda
-        tx = gpu(tx)
-        rx = gpu(rx)
+        @allowscalar tx = gpu(tx)
+        @allowscalar rx = gpu(rx)
     end
     trainer = EchoTrainer(tx, rx, shared_or_grad=gp_or_esp, roundtrip=esp_or_epp)
     channel = EchoTrainers.train!(trainer, expmt.config.train_kwargs)

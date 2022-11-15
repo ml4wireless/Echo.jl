@@ -253,6 +253,13 @@ function symbols_to_integers(data_sb)
     data_si
 end
 
+function symbols_to_integers(data_sb::CuArray)
+    nbits = size(data_sb, 1)
+    powers = CuArray(2 .^ (nbits-1:-1:0))
+    data_si = sum(data_sb .* powers, dims=1)[:]
+    data_si
+end
+
 
 """
 Converts array of bit representation of symbols to array of bits

@@ -1,6 +1,7 @@
 # Julia ML utils
 
 module FluxUtils
+using CUDA: CuArray
 using Flux
 using Zygote
 using ElasticArrays
@@ -185,6 +186,16 @@ function symbols_to_onehot(data_sb)
     data_oh = Flux.onehotbatch(data_si, 0:2^bps - 1)
     data_oh
 end
+
+# Need to specialize for CuArrays because onehotbatch moves to CPU (possibly through scalar indexing)
+function symbols_to_onehot(data_sb::CuArray)
+    bps = size(data_sb, 1)
+    data_si = symbols_to_integers(data_sb)
+    data_oh = Flux.onehotbatch(data_si |> cpu, 0:2^bps - 1) |> gpu
+    data_oh
+end
+
+
 
 
 """

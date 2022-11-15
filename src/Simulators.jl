@@ -126,7 +126,10 @@ function simulate_round_trip(a1, a2, bits_per_symbol, len_preamble, SNR_db, expl
 end
 
 
+simulate(sim::Simulator, SNR_db::Real; explore::Bool=false, swapagents::Bool=false) = simulate(sim, Float32(SNR_db); explore, swapagents)
+
 function simulate(sim::GradientPassingSimulator, SNR_db::Float32; explore::Bool=false, swapagents::Bool=false) end
+
 function simulate(sim::LossPassingSimulator, SNR_db::Float32; explore::Bool=false, swapagents::Bool=false)
     A = swapagents ? sim.agent2 : sim.agent1
     B = swapagents ? sim.agent1 : sim.agent2
@@ -144,6 +147,7 @@ function simulate(sim::PrivatePreambleSimulator, SNR_db::Float32; explore::Bool=
 end
 
 
+compute_ber_roundtrip(sim::Simulator, SNR_db::Real) = compute_ber_roundtrip(sim, Float32(SNR_db))
 function compute_ber_roundtrip(sim::Simulator, SNR_db::Float32)
     if isa(sim, GradientPassingSimulator) || isa(sim, LossPassingSimulator)
         return -1f0
@@ -154,6 +158,7 @@ function compute_ber_roundtrip(sim::Simulator, SNR_db::Float32)
 end
 
 
+compute_ber_halftrip(sim::Simulator, SNR_db::Real) = compute_ber_halftrip(sim, Float32(SNR_db))
 function compute_ber_halftrip(sim::Simulator, SNR_db::Float32)::Tuple{Float32, Float32}
     res = simulate_half_trip(sim.agent1, sim.agent2, sim.bits_per_symbol, sim.len_preamble, SNR_db, false, cuda=cuda)
     ber1 = get_bit_error_rate_sb(res.preamble, res.d2_symbs)
@@ -167,6 +172,7 @@ function compute_ber_halftrip(sim::Simulator, SNR_db::Float32)::Tuple{Float32, F
 end
 
 
+compute_ber_htrt(sim::Simulator, SNR_db::Real) = compute_ber_htrt(sim, Float32(SNR_db))
 function compute_ber_htrt(sim::Simulator, SNR_db::Float32)::Tuple{Float32, Float32, Float32}
     res = simulate(sim, SNR_db, explore=false)
     if isa(sim, GradientPassingSimulator) || isa(sim, LossPassingSimulator)
