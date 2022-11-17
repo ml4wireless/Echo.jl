@@ -173,13 +173,13 @@ _covellipse_args(args; n_std) = error(
 )
 
 """
-    modconstellation(mod; labeled=true, sampled=false)
+    modconstellation(mod; labeled=true, sampled=-1)
 Plot the constellation points of a modulator.
 If `labeled` is true, label each point.
-TODO: If `sampled` is true, instead of std_dev ellipses, sample a cloud of points and plot them all.
+If `sampled` > 0, instead of std_dev ellipses, sample a cloud of size `sampled` points and plot them all.
 """
 @userplot ModConstellation
-@recipe function f(mc::ModConstellation; labeled=true, sampled=false)
+@recipe function f(mc::ModConstellation; labeled=true, sampled=-1)
     if !(isa(mc.args[1], NeuralMod) || isa(mc.args[1], ClassicMod))
         error("Expected a NeuralMod or ClassicMod for constellation plot")
     end
@@ -218,18 +218,36 @@ TODO: If `sampled` is true, instead of std_dev ellipses, sample a cloud of point
         points[1, :], points[2, :]
     end
 
-    # Plot sampling std_dev ellipses
+    # Plotting for exploration
     if !isclassic(mod)
-        std_devs = exp.(mod.log_std)
-        for i in 1:length(symbs_si)
-            μ, S = _covellipse_args((points[:, i], [std_devs[1] 0; 0 std_devs[2]]), n_std = 1)
-            θ = range(0, 2π; length = 100)
-            A = S * [cos.(θ)'; sin.(θ)']
+        if sampled > 0
+            # Plot sampled exploration points
+            sampled = Int(round(sampled))  # Force integer since recipes don't allow type annotation
+            points_per_symb = sampled ÷ mod.bits_per_symbol
+            for (i, symb) in enumerate(eachcol(mod.all_unique_symbols))
+                iq = modulate(mod, reshape(repeat(symb, outer=points_per_symb), (2, :)), explore=true)
+                @series begin
+                    seriestype := :scatter
+                    markercolor := colors.colors[i]
+                    seriesalpha --> 0.5
+                    markertype --> :circle
+                    markersize --> 3
+                    iq[1, :], iq[2, :]
+                end
+            end
+        else
+            # Plot sampling std_dev ellipses
+            std_devs = exp.(mod.log_std)
+            for i in 1:length(symbs_si)
+                μ, S = _covellipse_args((points[:, i], [std_devs[1] 0; 0 std_devs[2]]), n_std = 1)
+                θ = range(0, 2π; length = 100)
+                A = S * [cos.(θ)'; sin.(θ)']
 
-            @series begin
-                seriesalpha --> 0.3
-                color := colors[i]
-                Shape(μ[1] .+ A[1, :], μ[2] .+ A[2, :])
+                @series begin
+                    seriesalpha --> 0.3
+                    color := colors[i]
+                    Shape(μ[1] .+ A[1, :], μ[2] .+ A[2, :])
+                end
             end
         end
     end

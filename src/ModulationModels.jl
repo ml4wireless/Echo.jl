@@ -210,7 +210,6 @@ end
 
 Flux.@functor NeuralModPolicy (means, stds)
 NeuralModPolicy() = NeuralModPolicy(M32(undef, 0, 0), V32(undef, 0))
-# TODO: separate CUDA & CPU versions of rand, logpdf
 Random.rand(rng::AbstractRNG, policy::NeuralModPolicy{M32, V32}) = randn(rng, Float32, size(policy)) .* policy.stds .+ policy.means
 Random.rand(policy::NeuralModPolicy{CM32, CV32}) = curandn(Float32, size(policy)) .* policy.stds .+ policy.means
 
