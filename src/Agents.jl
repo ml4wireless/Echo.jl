@@ -16,7 +16,7 @@ MaybeNMod = Union{NeuralMod, Nothing}
 MaybeMod = Union{NeuralMod, ClassicMod, Nothing}
 MaybeCDMod = Union{ClassicDemod, Nothing}
 MaybeNDMod = Union{NeuralDemod, Nothing}
-MaybeDMod = Union{NeuralDemod, ClassicDemod, Nothing}
+MaybeDMod = Union{NeuralDemod, ClassicDemod, ClusteringDemod, Nothing}
 
 get_kwargs(::Nothing; include_weights=false) = (;)
 kwarg_types(args) = tuple(pairzip(typeof.(keys(args)), typeof.(values(args)))...)
@@ -102,6 +102,8 @@ function Random.rand(rng::AbstractRNG, s::AgentSampler)
         demod = nothing
     elseif s.demod_class == ClassicDemod
         demod = s.demod_class(bits_per_symbol=s.bits_per_symbol, rotation_deg=rotation_deg, avg_power=s.avg_power)
+    elseif s.demod_class == ClusteringDemod
+        demod = s.demod_class(bits_per_symbol=s.bits_per_symbol)
     else
         demod = s.demod_class(bits_per_symbol=s.bits_per_symbol; s.demod_kwargs...)
     end
