@@ -121,7 +121,7 @@ end
 """
 Modulate a bps x N symbol message to cartesian coordinates
 """
-function modulate(m::ClassicMod, symbols; explore=False)
+function modulate(m::ClassicMod, symbols; explore=false)
     m(symbols)
 end
 
@@ -252,7 +252,7 @@ function NeuralMod(;bits_per_symbol,
                    log_std_dict=(; initial=-1f0, max=1f0, min=-3f0),
                    lr_dict=(; mu=5f-1, std=1f-3),
                    lambda_prob=1f-6,
-                   weights=nothing)
+                   log_std=nothing, weights=nothing)
     if isa(activation_fn_hidden, String)
         activation_fn_hidden = getfield(Flux, Symbol(activation_fn_hidden))
     end
@@ -265,9 +265,15 @@ function NeuralMod(;bits_per_symbol,
     push!(layers, Dense(layer_dims[end-1], layer_dims[end], activation_fn_output))
     μ = Chain(layers...)
     if weights !== nothing
-        Flux.loadparams!(μ, weights)
+        if isa(weights, Flux.Params)
+            Flux.loadparams!(μ, weights)
+        else
+            Flux.loadmodel!(μ, weights)
+        end
     end
-    log_std = Vector{Float32}([log_std_dict.initial, log_std_dict.initial])
+    if log_std === nothing
+        log_std = Vector{Float32}([log_std_dict.initial, log_std_dict.initial])
+    end
     all_unique_symbols = integers_to_symbols(0:(2^bits_per_symbol-1), bits_per_symbol)
     NeuralMod(bits_per_symbol, hidden_layers,
               restrict_energy, activation_fn_hidden,
@@ -288,8 +294,9 @@ get_kwargs(m::NeuralMod; include_weights=false) = (;
     :log_std_dict => m.log_std_dict,
     :lr_dict => cpu(m.lr_dict),
     :lambda_prob => m.lambda_prob,
+    :log_std => include_weights ? cpu(m.log_std) : nothing,
     # TODO: change to new recommended method: deepcopy(m.μ), loadmodel!(m.μ, prevμ)
-    :weights => include_weights ? deepcopy(Flux.params(cpu(m.μ))) : nothing,
+    :weights => include_weights ? deepcopy(cpu(m.μ)) : nothing,
 )
 
 

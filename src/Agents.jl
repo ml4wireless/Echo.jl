@@ -160,6 +160,7 @@ end
 ##############################
 # High-level Agent constructor
 
+"""Return specialized Agent type based on mod & demod types"""
 function Agent(mod::MaybeMod, demod::MaybeDMod)
     if isa(mod, MaybeNMod) && isa(demod, MaybeNDMod)
         agent = NeuralAgent(mod.bits_per_symbol, mod, demod)
@@ -181,9 +182,10 @@ function Agent(mod::MaybeMod, demod::MaybeDMod)
     agent
 end
 
+"""Agent constructor from kwargs"""
 function Agent(;mod::Union{NamedTuple, Nothing}, demod::Union{NamedTuple, Nothing}, kwargs...)
-    newmod = Modulator(; mod...)
-    newdemod = Demodulator(; demod...)
+    newmod = mod === nothing ? mod : Modulator(; mod...)
+    newdemod = demod === nothing ? demod : Demodulator(; demod...)
     Agent(newmod, newdemod)
 end
 

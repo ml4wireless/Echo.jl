@@ -76,8 +76,8 @@ function reconstruct_epoch(results::Dict{Int64, Any}, epoch::Int)
         throw(KeyError("Epoch $epoch not in results, try $efinal or $(epochs[imin])"))
     end
     bers = results[epoch][:ber]
-    a1 = MixedAgent(; results[epoch][:kwargs].tx...)
-    a2 = MixedAgent(; results[epoch][:kwargs].rx...)
+    a1 = Agent(; results[epoch][:kwargs].tx...)
+    a2 = Agent(; results[epoch][:kwargs].rx...)
     (;agents=(a1, a2), bers=bers)
 end
 
