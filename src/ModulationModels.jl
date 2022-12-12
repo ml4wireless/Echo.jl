@@ -267,11 +267,12 @@ function demodulate(d::ClusteringDemod, iq; soft=false, preamble_si=nothing)
     # Otherwise, reuse old centers
     if preamble_si !== nothing
         @ignore_derivatives begin
+            cpreamble_si = cpu(preamble_si)
             ciq = cpu(iq)
             centers, assignments = d(ciq)
             # Majority vote on symbol decision per cluster
             for a in 1:2 ^ d.bits_per_symbol
-                true_symbols = preamble_si[assignments .== a]
+                true_symbols = cpreamble_si[assignments .== a]
                 symb_choices = modes(true_symbols)
                 d.centers[:, rand(symb_choices) + 1] .= centers[:, a]
             end
