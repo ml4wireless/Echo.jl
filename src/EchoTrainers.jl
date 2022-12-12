@@ -46,14 +46,14 @@ function get_optimisers_params(agents, optimiser=Flux.Adam)
     all_params, _ = multi_agent_params(agents)
     optim_models = []
     for a in agents
-        if !isclassic(a.mod) && a.mod !== nothing
+        if isneural(a.mod)
             push!(optim_models, a.mod)
             optims[a.mod.μ] = optimiser(a.mod.lr_dict.mu)
             indiv_params[a.mod.μ] = Flux.params(a.mod.μ)
             optims[a.mod.log_std] = optimiser(a.mod.lr_dict.std)
             indiv_params[a.mod.log_std] = Flux.params(a.mod.log_std)
         end
-        if !isclassic(a.demod) && a.demod !== nothing
+        if isneural(a.demod)
             push!(optim_models, a.demod)
             optims[a.demod] = optimiser(a.demod.lr)
             indiv_params[a.demod] = Flux.params(a.demod)
@@ -155,19 +155,19 @@ function update_shared_preamble!(simulator, SNR_db,
     grads = Flux.gradient(all_params) do
         res = simulate(simulator, SNR_db, explore=true)
         target = symbols_to_onehot(res.preamble1)
-        if !isclassic(a1.demod)
+        if isneural(a1.demod)
             # Train demod of a1 agent
             d1_loss = loss(a1.demod, logits=res.d1_logits, target=target)
         end
-        if !isclassic(a2.demod)
+        if isneural(a2.demod)
             # Train demod of a2 agent
             d2_loss = loss(a2.demod, logits=res.d2_logits, target=target)
         end
-        if !isclassic(a1.mod)
+        if isneural(a1.mod)
             # Train mod of a1 agent
             m1_loss = loss(a1.mod, symbols=res.preamble1, received_symbols=res.d1_rt_symbs, actions=res.m1_actions)
         end
-        if !isclassic(a2.mod)
+        if isneural(a2.mod)
             # Train mod of a2 agent
             m2_loss = loss(a2.mod, symbols=res.preamble2, received_symbols=res.d2_rt_symbs, actions=res.m2_actions)
         end

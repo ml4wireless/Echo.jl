@@ -83,7 +83,11 @@ function simulate_half_trip(a1, a2, bits_per_symbol, len_preamble, SNR_db, explo
     # Forward
     m1_actions = modulate(a1.mod, preamble, explore=explore)
     m1_actions_noisy = @ignore_derivatives add_cartesian_awgn(m1_actions, SNR_db, signal_power=1f0)
-    d2_logits = demodulate(a2.demod, m1_actions_noisy, soft=true)
+    if isclustering(a2.demod)
+        d2_logits = demodulate(a2.demod, m1_actions_noisy, soft=true, preamble_si=symbols_to_integers(preamble))
+    else
+        d2_logits = demodulate(a2.demod, m1_actions_noisy, soft=true)
+    end
     d2_sb = @ignore_derivatives logits_to_symbols_sb(d2_logits, bits_per_symbol)
     HTResults(preamble, m1_actions, d2_logits, d2_sb)
 end
@@ -96,7 +100,12 @@ function simulate_round_trip(a1, a2, bits_per_symbol, len_preamble, SNR_db, expl
     # Forward
     m1_actions = modulate(a1.mod, preamble1, explore=explore)
     m1_actions_noisy = @ignore_derivatives add_cartesian_awgn(m1_actions, SNR_db, signal_power=1f0)
-    d2_logits = demodulate(a2.demod, m1_actions_noisy, soft=true)
+    # Provide known preamble to clustering demod
+    if shared_preamble && isclustering(a2.demod)
+        d2_logits = demodulate(a2.demod, m1_actions_noisy, soft=true, preamble_si=symbols_to_integers(preamble1))
+    else
+        d2_logits = demodulate(a2.demod, m1_actions_noisy, soft=true)
+    end
     d2_sb = @ignore_derivatives logits_to_symbols_sb(d2_logits, bits_per_symbol)
     # Backward, include new preamble and round-trip message
     # New preamble is same as previous for ESP
@@ -104,9 +113,15 @@ function simulate_round_trip(a1, a2, bits_per_symbol, len_preamble, SNR_db, expl
     m2_actions_g = modulate(a2.mod, d2_sb, explore=false)
     m2_actions_p_noisy = @ignore_derivatives add_cartesian_awgn(m2_actions_p, SNR_db, signal_power=1f0)
     m2_actions_g_noisy = @ignore_derivatives add_cartesian_awgn(m2_actions_g, SNR_db, signal_power=1f0)
-    d1_p_logits = demodulate(a1.demod, m2_actions_p_noisy, soft=true)
+    if isclustering(a1.demod)
+        # Provide known preamble to clustering demod
+        d1_p_logits = demodulate(a1.demod, m2_actions_p_noisy, soft=true, preamble_si=(shared_preamble ? symbols_to_integers(preamble2) : nothing))
+        d1_rt_logits = demodulate(a1.demod, m2_actions_g_noisy, soft=true, preamble_si=(shared_preamble ? nothing : symbols_to_integers(preamble1)))
+    else
+        d1_p_logits = demodulate(a1.demod, m2_actions_p_noisy, soft=true)
+        d1_rt_logits = demodulate(a1.demod, m2_actions_g_noisy, soft=true)
+    end
     d1_ht_sb = @ignore_derivatives logits_to_symbols_sb(d1_p_logits, bits_per_symbol)
-    d1_rt_logits = demodulate(a1.demod, m2_actions_g_noisy, soft=true)
     d1_rt_sb = @ignore_derivatives logits_to_symbols_sb(d1_rt_logits, bits_per_symbol)
     # Final half-trip for updating a2 mod, (EPP) a2 demod
     if !isclassic(a2.mod) && final_halftrip

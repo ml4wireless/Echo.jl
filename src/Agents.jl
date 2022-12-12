@@ -24,7 +24,7 @@ kwarg_types(args) = tuple(pairzip(typeof.(keys(args)), typeof.(values(args)))...
 abstract type Agent end
 
 ##############
-# Mixed agents
+# Neural agents
 
 struct NeuralAgent <: Agent
     bits_per_symbol::Integer
@@ -39,6 +39,10 @@ get_kwargs(a::NeuralAgent) = (;
     :mod => get_kwargs(a.mod, include_weights=true),
     :demod => get_kwargs(a.demod, include_weights=true),
 )
+
+
+##############
+# Mixed agents
 
 struct MixedAgent <: Agent
     bits_per_symbol::Integer
@@ -57,6 +61,32 @@ get_kwargs(a::MixedAgent) = (;
     :mod => get_kwargs(a.mod, include_weights=true),
     :demod => get_kwargs(a.demod, include_weights=true),
 )
+
+
+################
+# Classic agents
+
+struct ClassicAgent <: Agent
+    bits_per_symbol::Integer
+    rotation_deg::Float32
+    avg_power::Float32
+    mod::MaybeCMod
+    demod::MaybeCDMod
+end
+
+@functor ClassicAgent (mod, demod)
+
+get_kwargs(a::ClassicAgent) = (;
+    :bits_per_symbol => a.bits_per_symbol,
+    :rotation_deg => a.rotation_deg,
+    :avg_power => a.avg_power,
+    :mod => get_kwargs(a.mod),
+    :demod => get_kwargs(a.demod),
+)
+
+
+################
+# Agent Sampling
 
 struct AgentSampler{M <: Modulator, D <: Demodulator}
     bits_per_symbol::Integer
@@ -113,27 +143,6 @@ function Random.rand(rng::AbstractRNG, s::AgentSampler)
 end
 
 
-################
-# Classic agents
-
-struct ClassicAgent <: Agent
-    bits_per_symbol::Integer
-    rotation_deg::Float32
-    avg_power::Float32
-    mod::MaybeCMod
-    demod::MaybeCDMod
-end
-
-@functor ClassicAgent (mod, demod)
-
-get_kwargs(a::ClassicAgent) = (;
-    :bits_per_symbol => a.bits_per_symbol,
-    :rotation_deg => a.rotation_deg,
-    :avg_power => a.avg_power,
-    :mod => get_kwargs(a.mod),
-    :demod => get_kwargs(a.demod),
-)
-
 struct ClassicAgentSampler
     bits_per_symbol::Integer
     min_rotation_deg::Float32
@@ -175,8 +184,10 @@ function Agent(mod::MaybeMod, demod::MaybeDMod)
     else
         if isa(mod, MaybeCMod)
             rotation = mod.rotation[1] * 180 / pi
-        else
+        elseif isa(demod, MaybeCDMod)
             rotation = demod.rotation[1] * 180 / pi
+        else
+            rotation = 0
         end
         agent = MixedAgent(mod.bits_per_symbol, rotation, mod.avg_power,
                            mod, demod)

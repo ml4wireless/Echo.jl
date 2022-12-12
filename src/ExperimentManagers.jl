@@ -24,7 +24,9 @@ agent_type_map = Dict(
     "neuraldemod" => NeuralDemod,
     "neuralmod" => NeuralMod,
     "classicdemod" => ClassicDemod,
-    "classicmod" => ClassicMod
+    "classicmod" => ClassicMod,
+    "clusterdemod" => ClusteringDemod,
+    "clusteringdemod" => ClusteringDemod,
 )
 
 
@@ -70,6 +72,7 @@ function run_experiment(expmt::ExperimentConfig; save_results::Bool=true, noreru
         demod_kwargs=gp_or_lp ? (;) : expmt.config.neural_demod_kwargs;
         expmt.config.classic_agent_sampler_kwargs...
     )
+    @show expmt.config.neural_mod_2_kwargs
     rx_agent_sampler = AgentSampler(
         mod_class=gp_or_lp ? nothing : agent_type_map[expmt.config.agent_types.rx_mod * "mod"],
         demod_class=agent_type_map[expmt.config.agent_types.rx_demod * "demod"],

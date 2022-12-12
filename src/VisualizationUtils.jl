@@ -74,8 +74,8 @@ Sample the grid with density points across each dimension, from lims[1] to lims[
 """
 @userplot DemodGrid
 @recipe function f(dg::DemodGrid; labeled=true, density=100, lims=(-1.5, 1.5))
-    if !(isa(dg.args[1], NeuralDemod) || isa(dg.args[1], ClassicDemod))
-        error("Expected a NeuralDemod or ClassicDemod for demod grid")
+    if !(isa(dg.args[1], NeuralDemod) || isa(dg.args[1], ClassicDemod) || isa(dg.args[1], ClusteringDemod))
+        error("Expected a Neural, Clustering, or Classic Demod for demod grid")
     end
     demod = dg.args[1]
 
@@ -122,6 +122,16 @@ Sample the grid with density points across each dimension, from lims[1] to lims[
             markeralpha := 0
             series_annotations := [(l, 11) for l in labels]
             [grid_1axis[p.I[2]] for p in peaks], [grid_1axis[p.I[1]] for p in peaks]
+        end
+    end
+
+    # Add cluster centers
+    if isclustering(demod)
+        @series begin
+            seriestype := :scatter
+            markercolor := cell_colors.colors[1:2 ^ demod.bits_per_symbol]
+            markershape := :star
+            demod.centers[1, :], demod.centers[2, :]
         end
     end
 end

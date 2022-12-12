@@ -2,7 +2,7 @@ module ModulationModels
 export ClassicMod, ClassicDemod
 export NeuralMod, NeuralDemod
 export ClusteringDemod
-export modulate, demodulate, isclassic, isclustering, ismod, iscuda, loss
+export modulate, demodulate, isclassic, isclustering, isneural, ismod, iscuda, loss
 export get_kwargs, Modulator, Demodulator
 
 
@@ -15,6 +15,7 @@ using CUDA: CuArray, Mem.DeviceBuffer as DeviceBuffer, randn as curandn
 using Distributions
 using Flux
 using Flux: unsqueeze
+using Logging
 using Printf
 using Random
 using Statistics
@@ -35,6 +36,7 @@ V32 = Vector{Float32}
 M32 = Matrix{Float32}
 
 # Helpers
+slogger = Logging.SimpleLogger(Logging.Error)
 
 # rotation_matrix(r) = Float32[[cos(r) sin(r)]
                             #  [-sin(r) cos(r)]]
@@ -214,14 +216,17 @@ end
 Base.show(io::IO, d::ClusteringDemod) = @printf(io, "%s(bps=%d)", typeof(d), d.bits_per_symbol)
 
 
-function ClusteringDemod(;bits_per_symbol::Integer)
-    centers = rand(Float32, (2, 2 ^ bits_per_symbol))
+function ClusteringDemod(;bits_per_symbol::Integer, centers::Union{Nothing, Matrix{Float32}}=nothing)
+    if centers === nothing
+        centers = rand(Float32, (2, 2 ^ bits_per_symbol))
+    end
     return ClusteringDemod(bits_per_symbol, centers)
 end
 
 
 get_kwargs(d::ClusteringDemod; include_weights::Bool=false) = (;
     :bits_per_symbol => d.bits_per_symbol,
+    :centers => deepcopy(d.centers),
 )
 
 
@@ -233,12 +238,20 @@ Output:
 logits: cluster centers, cluster assignments
 """
 function (d::ClusteringDemod)(iq)
-    R = kmeans(iq, 2 ^ d.bits_per_symbol; display=:none)
+    local R
+    # Disable derivatives and warnings about clustering cost increases
+    @ignore_derivatives begin
+        Logging.with_logger(slogger) do
+            R = kmeans(iq, 2 ^ d.bits_per_symbol; display=:none)
+        end
+    end
     centers = R.centers
     symbs = assignments(R)
     centers, symbs
 end
 
+
+_get_logits(iq, centers, bps) = -reshape(sum((reshape(iq, (1, 2, :)) .- reshape(centers', (:, 2, 1))) .^ 2, dims=2), (2 ^ bps, :))
 
 """
 Inputs:
@@ -250,21 +263,23 @@ Output:
 symbols_si: vector of integer symbols, or logits if soft=true
 """
 function demodulate(d::ClusteringDemod, iq; soft=false, preamble_si=nothing)
-    get_logits(iq, centers, bps) = -reshape(sum((reshape(iq, (1, 2, :)) .- reshape(centers', (:, 2, 1))) .^ 2, dims=2), (2 ^ bps, :))
     # If we have a shared preamble, try to find the best center -> symbol mapping
     # Otherwise, reuse old centers
     if preamble_si !== nothing
-        centers, assignments = d(iq)
-        # Majority vote on symbol decision per cluster
-        for a in 1:2 ^ d.bits_per_symbol
-            true_symbols = preamble_si[assignments .== a]
-            symb_choices = modes(true_symbols)
-            @show a true_symbols symb_choices
-            d.centers[:, rand(symb_choices) + 1] .= centers[:, a]
+        @ignore_derivatives begin
+            ciq = cpu(iq)
+            centers, assignments = d(ciq)
+            # Majority vote on symbol decision per cluster
+            for a in 1:2 ^ d.bits_per_symbol
+                true_symbols = preamble_si[assignments .== a]
+                symb_choices = modes(true_symbols)
+                d.centers[:, rand(symb_choices) + 1] .= centers[:, a]
+            end
         end
     end
     # If soft, return distance to each center per sample
-    logits = get_logits(iq, d.centers, d.bits_per_symbol)
+    centers = isa(iq, CuArray) ? gpu(d.centers) : d.centers
+    logits = _get_logits(iq, centers, d.bits_per_symbol)
     if soft
         return logits
     end
@@ -628,6 +643,10 @@ isclassic(::Any) = false
 
 isclustering(::ClusteringDemod) = true
 isclustering(::Any) = false
+
+isneural(::NeuralMod) = true
+isneural(::NeuralDemod) = true
+isneural(::Any) = false
 
 ismod(::ClassicMod) = true
 ismod(::NeuralMod) = true
