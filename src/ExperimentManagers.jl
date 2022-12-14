@@ -48,7 +48,8 @@ Run training for shared preamble experiment
 function run_experiment(expmt::ExperimentConfig; save_results::Bool=true, norerun::Bool=false)
     println("Running experiment $(expmt.config.experiment_type)->$(expmt.config.experiment_id)")
     savefile = joinpath(expmt.results_dir, expmt.config.experiment_type, expmt.config.experiment_id * ".bson")
-    mkpath(dirname(savefile))
+    mkpath(dirname(savefile), mode=0o755)
+    println("Saving results to $(savefile)")
     if norerun && isfile(savefile)
         oldcfg = loadresults(savefile).config
         if oldcfg == expmt.config

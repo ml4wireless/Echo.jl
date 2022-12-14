@@ -130,7 +130,7 @@ Sample the grid with density points across each dimension, from lims[1] to lims[
         @series begin
             seriestype := :scatter
             markercolor := cell_colors.colors[1:2 ^ demod.bits_per_symbol]
-            markershape := :star
+            markershape := :x
             demod.centers[1, :], demod.centers[2, :]
         end
     end
