@@ -66,7 +66,7 @@ end
 """
 Apply optimiser updates to models based on grads
 """
-function apply_model_updates!(grads, optims, models, indiv_params)
+function apply_model_updates!(grads, optims, models, indiv_params; update_log_std::Bool=true)
     for m in models
         if ismod(m)
             # Update μ parameters
@@ -76,10 +76,12 @@ function apply_model_updates!(grads, optims, models, indiv_params)
                 Flux.update!(opt, p, grads[p])
             end
             # Update log_std parameters
-            ps = indiv_params[m.log_std]
-            opt = optims[m.log_std]
-            for p in ps
-                Flux.update!(opt, p, grads[p])
+            if update_log_std
+                ps = indiv_params[m.log_std]
+                opt = optims[m.log_std]
+                for p in ps
+                    Flux.update!(opt, p, grads[p])
+                end
             end
         else
             # Update demod parameters
@@ -111,11 +113,34 @@ end
 
 
 """
+Gradient Passing update logic
+"""
+function update_gradient_passing!(simulator, SNR_db,
+                                  optims, models, all_params, indiv_params,
+                                  verbose)
+    a1 = simulator.agent1
+    a2 = simulator.agent2
+    loss = 0
+    local res
+    grads = Flux.gradient(all_params) do
+        res = simulate(simulator, SNR_db, explore=true)
+        target = symbols_to_onehot(res.preamble)
+        loss = loss_crossentropy(logits=res.d2_logits, target=target)
+    end
+    if verbose
+        println("loss: $(loss)")
+    end
+    apply_model_updates!(grads, optims, models, indiv_params, update_log_std=false)
+    (; loss = loss,)
+end
+
+
+"""
 Loss Passing update logic
 """
 function update_loss_passing!(simulator, SNR_db,
-                             optims, models, all_params, indiv_params,
-                             verbose)
+                              optims, models, all_params, indiv_params,
+                              verbose)
     a1 = simulator.agent1
     a2 = simulator.agent2
     m1_loss = d2_loss = 0
