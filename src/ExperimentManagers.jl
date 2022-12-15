@@ -169,9 +169,11 @@ end
 function get_demod(expmt::ExperimentConfig)
     if expmt.config.agent_types.tx_demod == "neural"
         demod = NeuralDemod(;expmt.config.neural_demod_kwargs...)
-    else
+    elseif expmt.config.agent_types.tx_demod == "classic"
         sampler = ClassicAgentSampler(expmt.config.classic_agent_sampler_kwargs...)
         demod = rand(sampler).demod
+    else
+        demod = ClusteringDemod(bits_per_symbol=expmt.bps)
     end
     demod
 end
@@ -179,9 +181,11 @@ end
 function get_opp_demod(expmt::ExperimentConfig)
     if expmt.config.agent_types.rx_demod == "neural"
         demod = NeuralDemod(;expmt.config.neural_demod_kwargs...)
-    else
-        sampler = ClassicAgentSampler(;expmt.config.classic_agent_sampler_kwargs...)
+    elseif expmt.config.agent_types.rx_demod == "classic"
+        sampler = ClassicAgentSampler(expmt.config.classic_agent_sampler_kwargs...)
         demod = rand(sampler).demod
+    else
+        demod = ClusteringDemod(bits_per_symbol=expmt.bps)
     end
     demod
 end
