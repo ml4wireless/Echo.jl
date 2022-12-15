@@ -381,9 +381,9 @@ get_kwargs(m::NeuralMod; include_weights=false) = (;
     :activation_fn_hidden => String(Symbol(m.activation_fn_hidden)),
     :avg_power => m.avg_power,
     :log_std_dict => m.log_std_dict,
-    :lr_dict => cpu(m.lr_dict),
+    :lr_dict => m.lr_dict,
     :lambda_prob => m.lambda_prob,
-    :log_std => include_weights ? cpu(m.log_std) : nothing,
+    :log_std => include_weights ? deepcopy(cpu(m.log_std)) : nothing,
     # TODO: change to new recommended method: deepcopy(m.μ), loadmodel!(m.μ, prevμ)
     :weights => include_weights ? deepcopy(cpu(m.μ)) : nothing,
 )
