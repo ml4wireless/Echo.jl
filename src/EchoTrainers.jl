@@ -148,11 +148,11 @@ function update_loss_passing!(simulator, SNR_db,
     grads = Flux.gradient(all_params) do
         res = simulate(simulator, SNR_db, explore=true)
         target = symbols_to_onehot(res.preamble)
-        if !isclassic(a2.demod)
+        if isneural(a2.demod)
             # Train demod
             d2_loss = loss(a2.demod, logits=res.d2_logits, target=target)
         end
-        if !isclassic(a1.mod)
+        if isneural(a1.mod)
             # Train mod
             m1_loss = loss(a1.mod, symbols=res.preamble, received_symbols=res.d2_symbs, actions=res.m1_actions)
         end
@@ -211,8 +211,8 @@ end
 Private preamble update logic
 """
 function update_private_preamble!(simulator, SNR_db,
-                                 optims, models, all_params, indiv_params,
-                                 verbose)
+                                  optims, models, all_params, indiv_params,
+                                  verbose)
     a1 = simulator.agent1
     a2 = simulator.agent2
     d1_loss = d2_loss = m1_loss = m2_loss = 0
@@ -221,19 +221,19 @@ function update_private_preamble!(simulator, SNR_db,
         res = simulate(simulator, SNR_db, explore=true)
         target1 = symbols_to_onehot(res.preamble1)
         target2 = symbols_to_onehot(res.preamble2)
-        if !isclassic(a1.demod)
+        if isneural(a1.demod)
             # Train demod of a1 agent
             d1_loss = loss(a1.demod, logits=res.d1_rt_logits, target=target1)
         end
-        if !isclassic(a2.demod)
+        if isneural(a2.demod)
             # Train demod of a2 agent
             d2_loss = loss(a2.demod, logits=res.d2_rt_logits, target=target2)
         end
-        if !isclassic(a1.mod)
+        if isneural(a1.mod)
             # Train mod of a1 agent
             m1_loss = loss(a1.mod, symbols=res.preamble1, received_symbols=res.d1_rt_symbs, actions=res.m1_actions)
         end
-        if !isclassic(a2.mod)
+        if isneural(a2.mod)
             # Train mod of a2 agent
             m2_loss = loss(a2.mod, symbols=res.preamble2, received_symbols=res.d2_rt_symbs, actions=res.m2_actions)
         end

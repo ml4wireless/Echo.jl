@@ -4,6 +4,7 @@ export simulate_round_trip, RTResults
 export simulate_half_trip, HTResults
 export compute_ber_halftrip, compute_ber_roundtrip, compute_ber_htrt
 
+using Accessors
 using Flux
 using ChainRules: @ignore_derivatives
 using Statistics
@@ -110,7 +111,8 @@ function simulate_round_trip(a1, a2, bits_per_symbol, len_preamble, SNR_db, expl
     m1_actions_noisy = @ignore_derivatives add_cartesian_awgn(m1_actions, SNR_db, signal_power=1f0)
     # Provide known preamble to clustering demod
     if shared_preamble && isclustering(a2.demod)
-        d2_logits = demodulate(a2.demod, m1_actions_noisy, soft=true, preamble_si=symbols_to_integers(preamble1))
+        d2_logits = demodulate(a2.demod, m1_actions_noisy, soft=true,
+                               preamble_si=symbols_to_integers(preamble1))
     else
         d2_logits = demodulate(a2.demod, m1_actions_noisy, soft=true)
     end
@@ -122,9 +124,11 @@ function simulate_round_trip(a1, a2, bits_per_symbol, len_preamble, SNR_db, expl
     m2_actions_p_noisy = @ignore_derivatives add_cartesian_awgn(m2_actions_p, SNR_db, signal_power=1f0)
     m2_actions_g_noisy = @ignore_derivatives add_cartesian_awgn(m2_actions_g, SNR_db, signal_power=1f0)
     if isclustering(a1.demod)
-        # Provide known preamble to clustering demod
-        d1_p_logits = demodulate(a1.demod, m2_actions_p_noisy, soft=true, preamble_si=(shared_preamble ? symbols_to_integers(preamble2) : nothing))
-        d1_rt_logits = demodulate(a1.demod, m2_actions_g_noisy, soft=true, preamble_si=(shared_preamble ? nothing : symbols_to_integers(preamble1)))
+        # Provide known preamble to clustering demod for ESP on halftrip, EPP on roundtrip
+        d1_p_logits = demodulate(a1.demod, m2_actions_p_noisy, soft=true,
+                                 preamble_si=(shared_preamble ? symbols_to_integers(preamble2) : nothing))
+        d1_rt_logits = demodulate(a1.demod, m2_actions_g_noisy, soft=true,
+                                  preamble_si=(shared_preamble ? nothing : symbols_to_integers(preamble1)))
     else
         d1_p_logits = demodulate(a1.demod, m2_actions_p_noisy, soft=true)
         d1_rt_logits = demodulate(a1.demod, m2_actions_g_noisy, soft=true)
@@ -132,10 +136,16 @@ function simulate_round_trip(a1, a2, bits_per_symbol, len_preamble, SNR_db, expl
     d1_ht_sb = @ignore_derivatives logits_to_symbols_sb(d1_p_logits, bits_per_symbol)
     d1_rt_sb = @ignore_derivatives logits_to_symbols_sb(d1_rt_logits, bits_per_symbol)
     # Final half-trip for updating a2 mod, (EPP) a2 demod
-    if !isclassic(a2.mod) && final_halftrip
+    if (!isclassic(a2.mod) || !isclassic(a2.demod)) && final_halftrip
         m1_actions_rt = modulate(a1.mod, d1_ht_sb, explore=false)
         m1_actions_rt_noisy = @ignore_derivatives add_cartesian_awgn(m1_actions_rt, SNR_db, signal_power=1f0)
-        d2_rt_logits = demodulate(a2.demod, m1_actions_rt_noisy, soft=true)
+        if isclustering(a2.demod)
+            # Provide known preamble to clustering demod for EPP on roundtrip
+            d2_rt_logits = demodulate(a2.demod, m1_actions_rt_noisy, soft=true,
+                                      preamble_si=(shared_preamble ? nothing : symbols_to_integers(preamble2)))
+        else
+            d2_rt_logits = demodulate(a2.demod, m1_actions_rt_noisy, soft=true)
+        end
         d2_rt_sb = @ignore_derivatives logits_to_symbols_sb(d2_rt_logits, bits_per_symbol)
     else
         d2_rt_logits = similar(d1_rt_logits, (0, 0))
@@ -180,7 +190,12 @@ function compute_ber_roundtrip(sim::Simulator, SNR_db::Float32)
     if isa(sim, GradientPassingSimulator) || isa(sim, LossPassingSimulator)
         return -1f0
     end
-    res = simulate_round_trip(sim.agent1, sim.agent2, sim.bits_per_symbol, sim.len_preamble, SNR_db, false, cuda=sim.cuda)
+    # For private preamble + clustering demod, do a warmup round to set the cluster means
+    if isa(sim, PrivatePreambleSimulator) && any([isclustering(a.demod) for a in [sim.agent1, sim.agent2]])
+        warmup_sim = @set sim.len_preamble = max(div(sim.len_preamble, 10), 100)
+        simulate(sim, SNR_db, explore=false)
+    end
+    res = simulate(sim, SNR_db, explore=false)
     ber = get_bit_error_rate_sb(res.preamble1, res.d1_rt_symbs)
     ber
 end
@@ -202,6 +217,11 @@ end
 
 compute_ber_htrt(sim::Simulator, SNR_db::Real) = compute_ber_htrt(sim, Float32(SNR_db))
 function compute_ber_htrt(sim::Simulator, SNR_db::Float32)::Tuple{Float32, Float32, Float32}
+    # For private preamble + clustering demod, do a warmup round to set the cluster means
+    if isa(sim, PrivatePreambleSimulator) && any([isclustering(a.demod) for a in [sim.agent1, sim.agent2]])
+        warmup_sim = @set sim.len_preamble = max(div(sim.len_preamble, 10), 100)
+        simulate(sim, SNR_db, explore=false)
+    end
     res = simulate(sim, SNR_db, explore=false)
     if isa(sim, GradientPassingSimulator) || isa(sim, LossPassingSimulator)
         ber_12 = get_bit_error_rate_sb(res.preamble, res.d2_symbs)
