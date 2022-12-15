@@ -173,24 +173,26 @@ end
 
 """Return specialized Agent type based on mod & demod types"""
 function Agent(mod::MaybeMod, demod::MaybeDMod)
-    if isa(mod, MaybeNMod) && isa(demod, MaybeNDMod)
-        agent = NeuralAgent(mod.bits_per_symbol, mod, demod)
-    elseif isa(mod, MaybeCMod) && isa(demod, MaybeCDMod)
-        bps = mod === nothing ? demod.bits_per_symbol : mod.bits_per_symbol
-        rotation = mod === nothing ? demod.rotation : mod.rotation
-        avg_power = mod === nothing ? demod.avg_power : mod.avg_power
-        agent = ClassicAgent(bps, rotation[1] * 180 / pi, avg_power,
-                             mod, demod)
+    # Get global bps
+    bps = mod === nothing ? demod.bits_per_symbol : mod.bits_per_symbol
+    # Get classic rotation
+    rotation_deg = isclassic(mod) ? mod.rotation[1] * 180 / pi : 0
+    rotation_deg = isclassic(demod) ? demod.rotation[1] * 180 / pi : rotation_deg
+    # Get mod/demod average power
+    if mod !== nothing
+        avg_power = mod.avg_power
+    elseif isclassic(demod)
+        avg_power = demod.avg_power
     else
-        if isa(mod, MaybeCMod)
-            rotation = mod.rotation[1] * 180 / pi
-        elseif isa(demod, MaybeCDMod)
-            rotation = demod.rotation[1] * 180 / pi
-        else
-            rotation = 0
-        end
-        agent = MixedAgent(mod.bits_per_symbol, rotation, mod.avg_power,
-                           mod, demod)
+        avg_power = 1f0
+    end
+    # Create Agent struct
+    if isa(mod, MaybeNMod) && isa(demod, MaybeNDMod)
+        agent = NeuralAgent(bps, mod, demod)
+    elseif isa(mod, MaybeCMod) && isa(demod, MaybeCDMod)
+        agent = ClassicAgent(bps, rotation_deg, avg_power, mod, demod)
+    else
+        agent = MixedAgent(bps, rotation_deg, avg_power, mod, demod)
     end
     agent
 end
