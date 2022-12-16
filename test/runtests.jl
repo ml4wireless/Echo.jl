@@ -83,14 +83,14 @@ function main()
             end
 
             @testset "NC runtime" begin
-                timings = repeats([2], length(ncconf))
+                timings = repeat([2], length(ncconf))
                 for (t, c) in zip(timings, ncconf)
                     @test run_meets_timing(c, t)
                 end
             end
 
             @testset "NClu runtime" begin
-                timings = repeats([2], length(ncluconf))
+                timings = repeat([2], length(ncluconf))
                 for (t, c) in zip(timings, ncluconf)
                     @test run_meets_timing(c, t)
                 end
