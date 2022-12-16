@@ -1,16 +1,10 @@
 using Flux
 using Random
-push!(LOAD_PATH, "./src")
-using ExperimentRoundTrip
-using ModulationModels
-using DataUtils
-using EchoTrainers
-using Simulators
-using FluxUtils
-using ConfigUtils
+
+using Echo
 
 
-config_file = "./configs/mod_sprt_toy.yml"
+config_file = "./configs/convergence/nn_esp.yml"
 config = loadconfig(config_file)
 excfg = ExperimentConfig(config, "./results")
 

@@ -1,5 +1,6 @@
 using Test
 using Accessors
+using Flux: params, Chain
 
 push!(LOAD_PATH, "../src")
 using Echo
@@ -39,8 +40,49 @@ function run_meets_timing(configfile, maxtime)
 end
 
 
-function main()
-    helpinfo = "Run with -c to run convergence tests only; -t to run timing tests only; -h to print help"
+_isclose(A::AbstractArray, B::AbstractArray, tol=1e-8) = all(abs.((A .- B) ./ A) .< tol .&& abs.((A .- B) ./ B) .< tol)
+_isclose(A::Chain, B::Chain) = all([_isclose(p1, p2) for (p1, p2) in zip(params(A), params(B))])
+
+function run_gradient_check(configfile)
+    testname = uppercase(basename(configfile)[1:end - 4])
+    @info testname
+    cfg = loadconfig(configfile)
+    cfg = @set cfg.train_kwargs.num_iterations_train = 10
+    ec = ExperimentConfig(cfg, "/tmp")
+    results, agents = run_experiment(ec, save_results=false)
+    oldagents, _ = reconstruct_epoch(results, 0)
+    for (i, (agent, oldagent)) in enumerate(zip(agents, oldagents))
+        if isneural(agent.mod)
+            if _isclose(oldagent.mod.μ, agent.mod.μ)
+                @warn "Mod $i μ unchanged"
+                return false
+            end
+            if cfg.train_kwargs.protocol != GP && _isclose(oldagent.mod.log_std, agent.mod.log_std)
+                @warn "Mod $i log_std unchanged"
+                return false
+            end
+        end
+        if isneural(agent.demod)
+            oldagents, _ = reconstruct_epoch(results, 0)
+            if _isclose(oldagent.demod.net, agent.demod.net)
+                @warn "Demod $i net unchanged"
+                return false
+            end
+        end
+    end
+    # All parameters updated, success
+    true
+end
+
+
+function main(args)
+    helpinfo = """
+julia $PROGRAM_FILE [-t] [-c] [-b] [-h]
+    -c to run convergence tests only
+    -t to run timing tests only
+    -b to run backprop tests only
+    -h to print help
+"""
     # Uncomment to disable progressbar printouts
     # ENV["CI"] = "true"
     configs = sort(readdir("configs/convergence/", join=true, sort=true))
@@ -48,12 +90,12 @@ function main()
     ncconf = filter(contains("nc_"), configs)
     ncluconf = filter(contains("nclu_"), configs)
 
-    if "-h" ∈ ARGS
+    if "-h" ∈ args
         println(helpinfo)
         return
     end
 
-    if "-t" ∉ ARGS
+    if "-t" ∉ args && "-b" ∉ args
         @testset "BER convergence" begin
             @testset "NN convergence" begin
                 for c in nnconf
@@ -77,7 +119,7 @@ function main()
         # End BER convergence
     end
 
-    if "-c" ∉ ARGS
+    if "-c" ∉ args && "-b" ∉ args
         @testset "Run timing" begin
             @testset "NN runtime" begin
                 # timings = repeat([2], length(nnconf))
@@ -106,6 +148,30 @@ function main()
         end
         # End run timing
     end
+
+    if "-t" ∉ args && "-c" ∉ args
+        @testset "Gradient check" begin
+            @testset "NN gradients" begin
+                for c in nnconf
+                    @test run_gradient_check(c)
+                end
+            end
+
+            @testset "NC gradients" begin
+                for c in ncconf
+                    @test run_gradient_check(c)
+                end
+            end
+
+            @testset "NClu gradients" begin
+                for c in ncluconf
+                    @test run_gradient_check(c)
+                end
+            end
+
+        end
+        # End gradient check
+    end
 end
 
-main()
+main(ARGS)
