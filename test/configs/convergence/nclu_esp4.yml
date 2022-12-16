@@ -1,5 +1,5 @@
 experiment_type: neural_mod_shared_preamble_roundtrip
-experiment_id: mod_esp_toy_bps4
+experiment_id: nclu_esp_bps4
 seed: 12
 bps: 4
 
@@ -22,7 +22,7 @@ neural_demod_kwargs:
   bits_per_symbol: "$bps"
   activation_fn_hidden: relu
   hidden_layers: [50]
-  lr: 1e-3
+  lr: 1e-2
 
 neural_demod_2_kwargs: "$neural_demod_kwargs"
 
@@ -35,8 +35,8 @@ classic_agent_sampler_kwargs:
 agent_types:
   tx_mod: neural
   tx_demod: neural
-  rx_mod: neural
-  rx_demod: neural
+  rx_mod: classic
+  rx_demod: cluster
 
 train_kwargs:
   meta:
@@ -58,7 +58,7 @@ train_kwargs:
   len_preamble_eval: 10000
   plot_initial_eval: false
   stats_every_train: 50
-  num_iterations_train: 3000
+  num_iterations_train: 1000
   checkpoint_every_train: 300
   optimiser: adam
-  verbose: true
+  verbose: false

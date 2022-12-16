@@ -1,5 +1,5 @@
 experiment_type: neural_mod_private_preamble_roundtrip
-experiment_id: mod_epp_toy
+experiment_id: nn_epp_bps2
 seed: 12
 bps: 2
 
@@ -35,8 +35,8 @@ classic_agent_sampler_kwargs:
 agent_types:
   tx_mod: neural
   tx_demod: neural
-  rx_mod: classic
-  rx_demod: classic
+  rx_mod: neural
+  rx_demod: neural
 
 train_kwargs:
   meta:
@@ -60,4 +60,4 @@ train_kwargs:
   num_iterations_train: 2000
   checkpoint_every_train: 100
   optimiser: adam
-  verbose: true
+  verbose: false

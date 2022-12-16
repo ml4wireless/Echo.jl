@@ -2,18 +2,20 @@ using Test
 using Accessors
 
 push!(LOAD_PATH, "../src")
-using Echo 
+using Echo
 
 
 function run_converges(configfile)
+    testname = uppercase(basename(configfile)[1:end - 4])
+    @info testname
     cfg = loadconfig(configfile)
     ec = ExperimentConfig(cfg, "/tmp")
     results, _ = run_experiment(ec, save_results=false)
     bers = finalbers(results)
     train_snr_bers = bers[:, 5]
     @info "Final BERs for $configfile" train_snr_bers
-    # Add extra case for EPP with swapped bit interperpretations
-    all(train_snr_bers .< 0.02) || (train_snr_bers[3] < 0.02 && train_snr_bers[1] > 0.98)
+    # Add extra cases for EPP with swapped bit interperpretations
+    all(train_snr_bers .< 0.02) || (train_snr_bers[3] < 0.02 && (train_snr_bers[1] > 0.98 || 0.48 < train_snr_bers[1] < 0.52))
 end
 
 
@@ -35,7 +37,12 @@ end
 
 function main()
     helpinfo = "Run with -c to run convergence tests only; -t to run timing tests only; -h to print help"
+    # Uncomment to disable progressbar printouts
+    # ENV["CI"] = "true"
     configs = readdir("configs/convergence/", join=true, sort=true)
+    nnconf = filter(contains("nn_"), configs)
+    ncconf = filter(contains("nc_"), configs)
+    ncluconf = filter(contains("nclu_"), configs)
 
     if "-h" ∈ ARGS
         println(helpinfo)
@@ -44,19 +51,53 @@ function main()
 
     if "-t" ∉ ARGS
         @testset "BER convergence" begin
-            for c in configs
-                @test run_converges(c)
+            @testset "NN convergence" begin
+                for c in nnconf
+                    @test run_converges(c)
+                end
             end
+
+            @testset "NC convergence" begin
+                for c in ncconf
+                    @test run_converges(c)
+                end
+            end
+
+            @testset "NClu convergence" begin
+                for c in ncluconf
+                    @test run_converges(c)
+                end
+            end
+
         end
+        # End BER convergence
     end
 
     if "-c" ∉ ARGS
         @testset "Run timing" begin
-            timings = [2 2 2 2 2 2]
-            for (t, c) in zip(timings, configs)
-                @test run_meets_timing(c, t)
+            @testset "NN runtime" begin
+                timings = repeat([2], length(nnconf))
+                for (t, c) in zip(timings, nnconf)
+                    @test run_meets_timing(c, t)
+                end
             end
+
+            @testset "NC runtime" begin
+                timings = repeats([2], length(ncconf))
+                for (t, c) in zip(timings, ncconf)
+                    @test run_meets_timing(c, t)
+                end
+            end
+
+            @testset "NClu runtime" begin
+                timings = repeats([2], length(ncluconf))
+                for (t, c) in zip(timings, ncluconf)
+                    @test run_meets_timing(c, t)
+                end
+            end
+
         end
+        # End run timing
     end
 end
 
