@@ -199,6 +199,12 @@ end
 
 """Agent constructor from kwargs"""
 function Agent(;mod::Union{NamedTuple, Nothing}, demod::Union{NamedTuple, Nothing}, kwargs...)
+    if length(mod) == 0
+        mod = nothing
+    end
+    if length(demod) == 0
+        demod = nothing
+    end
     newmod = mod === nothing ? mod : Modulator(; mod...)
     newdemod = demod === nothing ? demod : Demodulator(; demod...)
     Agent(newmod, newdemod)
