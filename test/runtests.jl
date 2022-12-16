@@ -14,9 +14,9 @@ function run_converges(configfile)
     bers = finalbers(results)
     train_snr_bers = bers[:, 5]
     @info "Final BERs for $configfile" train_snr_bers
+    println()
     # Add extra cases for EPP with swapped bit interperpretations
     all(train_snr_bers .< 0.02) || (train_snr_bers[3] < 0.02 && (train_snr_bers[1] > 0.98 || 0.48 < train_snr_bers[1] < 0.52))
-    println()
 end
 
 
@@ -34,8 +34,8 @@ function run_meets_timing(configfile, maxtime)
     t1 = time()
     elapsed = t1 - t0
     @info "Runtime for $configfile" elapsed
-    elapsed <= maxtime
     println()
+    elapsed <= maxtime
 end
 
 
