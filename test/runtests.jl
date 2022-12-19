@@ -95,82 +95,85 @@ julia $PROGRAM_FILE [-t] [-c] [-b] [-h]
         return
     end
 
-    if "-t" ∉ args && "-b" ∉ args
-        @testset "BER convergence" begin
-            @testset "NN convergence" begin
-                for c in nnconf
-                    @test run_converges(c)
+    @testset "All tests" begin
+        if "-t" ∉ args && "-b" ∉ args
+            @testset "BER convergence" begin
+                @testset "NN convergence" begin
+                    for c in nnconf
+                        @test run_converges(c)
+                    end
                 end
-            end
 
-            @testset "NC convergence" begin
-                for c in ncconf
-                    @test run_converges(c)
+                @testset "NC convergence" begin
+                    for c in ncconf
+                        @test run_converges(c)
+                    end
                 end
-            end
 
-            @testset "NClu convergence" begin
-                for c in ncluconf
-                    @test run_converges(c)
+                @testset "NClu convergence" begin
+                    for c in ncluconf
+                        @test run_converges(c)
+                    end
                 end
-            end
 
+            end
+            # End BER convergence
         end
-        # End BER convergence
-    end
 
-    if "-c" ∉ args && "-b" ∉ args
-        @testset "Run timing" begin
-            @testset "NN runtime" begin
-                # timings = repeat([2], length(nnconf))
-                timings = [2, 1.75, 2.5, 1.25, 1.25, 1]
-                for (t, c) in zip(timings, nnconf)
-                    @test run_meets_timing(c, t)
+        if "-c" ∉ args && "-b" ∉ args
+            @testset "Run timing" begin
+                @testset "NN runtime" begin
+                    # timings = repeat([2], length(nnconf))
+                    timings = [2, 1.75, 2.5, 1.25, 1.25, 1]
+                    for (t, c) in zip(timings, nnconf)
+                        @test run_meets_timing(c, t)
+                    end
                 end
-            end
 
-            @testset "NC runtime" begin
-                # timings = repeat([2], length(ncconf))
-                timings = [1, 1, 1.25, .75, 1, .75]
-                for (t, c) in zip(timings, ncconf)
-                    @test run_meets_timing(c, t)
+                @testset "NC runtime" begin
+                    # timings = repeat([2], length(ncconf))
+                    timings = [1, 1, 1.25, .75, 1, .75]
+                    for (t, c) in zip(timings, ncconf)
+                        @test run_meets_timing(c, t)
+                    end
                 end
-            end
 
-            @testset "NClu runtime" begin
-                # timings = repeat([2], length(ncluconf))
-                timings = [3, 1.5, 3, 1.75, 2, 1.5]
-                for (t, c) in zip(timings, ncluconf)
-                    @test run_meets_timing(c, t)
+                @testset "NClu runtime" begin
+                    # timings = repeat([2], length(ncluconf))
+                    timings = [3, 1.5, 3, 1.75, 2, 1.5]
+                    for (t, c) in zip(timings, ncluconf)
+                        @test run_meets_timing(c, t)
+                    end
                 end
-            end
 
+            end
+            # End run timing
         end
-        # End run timing
-    end
 
-    if "-t" ∉ args && "-c" ∉ args
-        @testset "Gradient check" begin
-            @testset "NN gradients" begin
-                for c in nnconf
-                    @test run_gradient_check(c)
+        if "-t" ∉ args && "-c" ∉ args
+            @testset "Gradient check" begin
+                @testset "NN gradients" begin
+                    for c in nnconf
+                        @test run_gradient_check(c)
+                    end
                 end
-            end
 
-            @testset "NC gradients" begin
-                for c in ncconf
-                    @test run_gradient_check(c)
+                @testset "NC gradients" begin
+                    for c in ncconf
+                        @test run_gradient_check(c)
+                    end
                 end
-            end
 
-            @testset "NClu gradients" begin
-                for c in ncluconf
-                    @test run_gradient_check(c)
+                @testset "NClu gradients" begin
+                    for c in ncluconf
+                        @test run_gradient_check(c)
+                    end
                 end
-            end
 
+            end
+            # End gradient check
         end
-        # End gradient check
+    # End all tests
     end
 end
 
