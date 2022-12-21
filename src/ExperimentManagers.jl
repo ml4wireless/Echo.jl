@@ -27,6 +27,8 @@ agent_type_map = Dict(
     "classicmod" => ClassicMod,
     "clusterdemod" => ClusteringDemod,
     "clusteringdemod" => ClusteringDemod,
+    "nonemod" => nothing,
+    "nonedemod" => nothing,
 )
 
 
@@ -63,29 +65,28 @@ function run_experiment(expmt::ExperimentConfig; save_results::Bool=true, noreru
     Random.seed!(seed)
     # Set parameters based on protocol
     protocol = expmt.config.train_kwargs.protocol
-    esp_or_epp = protocol ∈ [ESP, EPP]
-    gp_or_esp = protocol ∈ [GP, ESP]
-    gp_or_lp = protocol ∈ [GP, LP]
-    tx_agent_sampler = AgentSampler(
-        mod_class=agent_type_map[expmt.config.agent_types.tx_mod * "mod"],
-        demod_class=gp_or_lp ? nothing : agent_type_map[expmt.config.agent_types.tx_demod * "demod"],
-        mod_kwargs=expmt.config.neural_mod_kwargs,
-        demod_kwargs=gp_or_lp ? (;) : expmt.config.neural_demod_kwargs;
-        expmt.config.classic_agent_sampler_kwargs...
-    )
-    rx_agent_sampler = AgentSampler(
-        mod_class=gp_or_lp ? nothing : agent_type_map[expmt.config.agent_types.rx_mod * "mod"],
-        demod_class=agent_type_map[expmt.config.agent_types.rx_demod * "demod"],
-        mod_kwargs=gp_or_lp ? (;) : expmt.config.neural_mod_2_kwargs,
-        demod_kwargs=expmt.config.neural_demod_2_kwargs;
-        expmt.config.classic_agent_sampler_kwargs...
-    )
-    tx, rx = rand(tx_agent_sampler), rand(rx_agent_sampler)
-    if expmt.cuda
-        @allowscalar tx = gpu(tx)
-        @allowscalar rx = gpu(rx)
+    agents = Agent[]
+    for agent_type in expmt.config.agent_types
+        mclass = agent_type_map[agent_type.mod * "mod"]
+        dclass = agent_type_map[agent_type.demod * "demod"]
+        mkwargs = agent_type.alt_kwargs ? expmt.config.neural_mod_2_kwargs : expmt.config.neural_mod_kwargs
+        dkwargs = agent_type.alt_kwargs ? expmt.config.neural_demod_2_kwargs : expmt.config.neural_demod_kwargs
+        sampler = AgentSampler(
+            mod_class=mclass, demod_class=dclass,
+            mod_kwargs=mclass === nothing ? (;) : mkwargs,
+            demod_kwargs=dclass === nothing ? (;) : dkwargs;
+            expmt.config.classic_agent_sampler_kwargs...
+        )
+        for _ in 1:agent_type.count
+            push!(agents, rand(sampler))
+        end
     end
-    trainer = EchoTrainer(tx, rx, shared_or_grad=gp_or_esp, roundtrip=esp_or_epp)
+    if expmt.cuda
+        for i in eachindex(agents)
+            @allowscalar agents[i] = gpu(agents[i])
+        end
+    end
+    trainer = EchoTrainer(agents, protocol)
     channel = EchoTrainers.train!(trainer, expmt.config.train_kwargs)
     results = nothing
     for msg in channel
@@ -99,7 +100,7 @@ function run_experiment(expmt::ExperimentConfig; save_results::Bool=true, noreru
             # println("Iteration $(last_iter) finished...")
         end
     end
-    results, (trainer.tx_agent, trainer.rx_agent)
+    results, trainer.agents
 end
 
 

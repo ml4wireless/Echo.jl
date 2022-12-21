@@ -14,6 +14,7 @@ Convert Dict to NamedTuple for speed, .<> notation access
 """
 dicts_to_nt(x) = x
 dicts_to_nt(d::Dict) = (; (Symbol(k) => dicts_to_nt(v) for (k, v) in d)...)
+dicts_to_nt(a::AbstractArray) = [dicts_to_nt(d) for d in a]
 
 """
 Convert NamedTuple to Dict for writing to file
@@ -115,6 +116,7 @@ function loadconfig(filename; verbose::Bool=false)
     # Walk config tree, replace $var with matching top-level entry
     replace_vars!(config, verbose=verbose)
     floats_to_32!(config)
+    # Ensure valid protocol flag
     protocol = lowercase(config["train_kwargs"]["protocol"])
     if protocol ∈ ["gp", "gradient_passing"]
         config["train_kwargs"]["protocol"] = GP
@@ -128,7 +130,6 @@ function loadconfig(filename; verbose::Bool=false)
         throw(ValueError("Unrecognized protocol $(protocol)"))
     end
     config = dicts_to_nt(config)
-    # Ensure valid protocol flag
     config
 end
 

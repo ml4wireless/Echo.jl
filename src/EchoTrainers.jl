@@ -5,6 +5,7 @@ using Flux
 using Flux.Optimise
 using ProgressMeter
 using Statistics
+using StatsBase: sample
 using Printf
 
 using ..Agents
@@ -13,11 +14,11 @@ using ..Simulators
 using ..Evaluators
 using ..LookupTableUtils
 using ..FluxUtils
+using ..Protocols
 
 
 struct EchoTrainer
-    tx_agent::Union{MixedAgent, ClassicAgent, NeuralAgent}
-    rx_agent::Union{MixedAgent, ClassicAgent, NeuralAgent}
+    agents::Vector{Agent}
     # Store simulator_class instead of simulator to allow sampling of agents
     simulator_class::Type
     evaluator_class::Type
@@ -25,7 +26,9 @@ struct EchoTrainer
     roundtrip::Bool
 end
 
-function EchoTrainer(tx_agent, rx_agent; shared_or_grad::Bool, roundtrip::Bool)
+function EchoTrainer(agents, protocol)
+    roundtrip = protocol ∈ [ESP, EPP]
+    shared_or_grad = protocol ∈ [GP, ESP]
     if roundtrip
         simulator = shared_or_grad ? SharedPreambleSimulator : PrivatePreambleSimulator
         update_fn! = shared_or_grad ? update_shared_preamble! : update_private_preamble!
@@ -33,7 +36,7 @@ function EchoTrainer(tx_agent, rx_agent; shared_or_grad::Bool, roundtrip::Bool)
         simulator = shared_or_grad ? GradientPassingSimulator : LossPassingSimulator
         update_fn! = shared_or_grad ? update_gradient_passing! : update_loss_passing!
     end
-    EchoTrainer(tx_agent, rx_agent, simulator, Evaluator, update_fn!, roundtrip)
+    EchoTrainer(agents, simulator, Evaluator, update_fn!, roundtrip)
 end
 
 
@@ -97,25 +100,33 @@ end
 
 """
 Calculate current non-exploration BER across SNRs
+
+Compares first agent to every other agent to avoid combinatorial growth of BER checks
 """
 function validate(trainer::EchoTrainer, len_preamble, verbose::Bool)
-    evaluator = trainer.evaluator_class(trainer.simulator_class, trainer.tx_agent, trainer.rx_agent, trainer.roundtrip)
-    t0 = time()
-    ber_array = evaluate(evaluator, len_preamble=len_preamble)
-    if verbose
-        println("$(time() - t0) seconds to evaluate")
-        println("Mean BER ", mean(ber_array, dims=2)[3])
+    final_ber_array = []
+    for i in 2:length(trainer.agents)
+        evaluator = trainer.evaluator_class(trainer.simulator_class, trainer.agents[1], trainer.agents[i], trainer.roundtrip)
+        t0 = time()
+        ber_array = evaluate(evaluator, len_preamble=len_preamble)
+        push!(final_ber_array, ber_array)
+        if verbose
+            println("$(time() - t0) seconds to evaluate")
+            println("Mean 1->$i BER ", mean(ber_array, dims=2)[3])
+        end
     end
-    val_dict = Dict(:ber => ber_array,
-                    :kwargs => (; tx=get_kwargs(trainer.tx_agent),
-                                  rx=get_kwargs(trainer.rx_agent)))
+    final_ber_array = cat(final_ber_array..., dims=3)
+    val_dict = Dict(:ber => final_ber_array,
+                    :kwargs => (; (Symbol("agent$i") => get_kwargs(trainer.agents[i]) for i in 1:length(trainer.agents))...)
+                    )
+    val_dict
 end
 
 
 """
 Gradient Passing update logic
 """
-function update_gradient_passing!(simulator, SNR_db,
+function update_gradient_passing!(simulator, eavesdroppers, SNR_db,
                                   optims, models, all_params, indiv_params,
                                   verbose)
     a1 = simulator.agent1
@@ -138,7 +149,7 @@ end
 """
 Loss Passing update logic
 """
-function update_loss_passing!(simulator, SNR_db,
+function update_loss_passing!(simulator, eavesdroppers, SNR_db,
                               optims, models, all_params, indiv_params,
                               verbose)
     a1 = simulator.agent1
@@ -170,7 +181,7 @@ end
 """
 Shared preamble update logic
 """
-function update_shared_preamble!(simulator, SNR_db,
+function update_shared_preamble!(simulator, eavesdroppers, SNR_db,
                                  optims, models, all_params, indiv_params,
                                  verbose)
     a1 = simulator.agent1
@@ -210,7 +221,7 @@ end
 """
 Private preamble update logic
 """
-function update_private_preamble!(simulator, SNR_db,
+function update_private_preamble!(simulator, eavesdroppers, SNR_db,
                                   optims, models, all_params, indiv_params,
                                   verbose)
     a1 = simulator.agent1
@@ -248,12 +259,15 @@ function update_private_preamble!(simulator, SNR_db,
 end
 
 
+_ensemble_train_bers(bers) = mean(bers, dims=3)[:, 5]
+
 """
 Run Echo training loop with trainer
 """
 function train!(trainer::EchoTrainer, train_args)
     Channel() do channel
         bps = train_args.bits_per_symbol
+        nagents = length(trainer.agents)
         if trainer.roundtrip
             SNR_db = get_optimal_SNR_for_BER_roundtrip(train_args.target_ber, bps)
         else
@@ -261,33 +275,49 @@ function train!(trainer::EchoTrainer, train_args)
         end
         println("Training at $(SNR_db) dB SNR")
         # Per-model and separate mu & log_std optimizers for individual learning rates
-        simulator = trainer.simulator_class(trainer.tx_agent, trainer.rx_agent, bps, train_args.len_preamble, iscuda(trainer.tx_agent))
-        optims, optim_models, all_params, indiv_params = get_optimisers_params(
-            [trainer.tx_agent, trainer.rx_agent], get_optimiser_type(train_args.optimiser)
+        optims, _, all_params, indiv_params = get_optimisers_params(
+            trainer.agents, get_optimiser_type(train_args.optimiser)
         )
-        # Run training loop
+        # Setup progress logging
         is_logging(io) = isa(io, Base.TTY) == false || (get(ENV, "CI", nothing) == "true")
         p = Progress(train_args.num_iterations_train, dt=0.25, output=stderr, enabled=!is_logging(stderr))
         generate_showvalues(iter, losses, results, info) = () -> [
             (:iter, iter),
             (:losses, losses),
-            (:bers, join([@sprintf("%0.4f", x) for x in results[maximum(keys(results))][:ber][:, 5]], ", ")),
+            (:bers, join([@sprintf("%0.4f", x) for x in _ensemble_train_bers(results[maximum(keys(results))][:ber])], ", ")),
             (:info, info)
         ]
         info = ""
         t0 = time()
         results = Dict{Int, Any}()
+        # Run training loop
         for iter in 1:train_args.num_iterations_train
             if iter == 1
                 val_dict = validate(trainer, train_args.len_preamble_eval, train_args.verbose)
                 val_dict[:t_elapsed] = time() - t0
                 results[0] = val_dict
             end
+            # Select participating agents
+            if train_args.protocol ∈ [GP, LP] && nagents == 2
+                idx1 = 1; idx2 = 2
+            else
+                idx1, idx2 = sample(1:nagents, 2, replace=false)
+            end
+            a1, a2 = trainer.agents[idx1], trainer.agents[idx2]
+            eavesdroppers = trainer.agents[ones(Bool, nagents) .&& (1:nagents .!= idx1) .&& (1:nagents .!= idx2)]
+            if train_args.protocol ∈ [GP, LP]
+                sim_models = filter(isneural, [a1.mod, a2.demod])
+            else
+                sim_models = filter(isneural, vcat([a.mod for a in (a1, a2)], [a.demod for a in (a1, a2)]))
+            end
+            # Run simulation and update
+            simulator = trainer.simulator_class(a1, a2, bps, train_args.len_preamble, iscuda(trainer.agents[1]))
             losses = trainer.update_fn!(
-                simulator, SNR_db,
-                optims, optim_models, all_params, indiv_params,
+                simulator, eavesdroppers, SNR_db,
+                optims, sim_models, all_params, indiv_params,
                 train_args.verbose
             )
+            # Validate
             if iter % train_args.stats_every_train == 0 || iter == train_args.num_iterations_train
                 val_dict = validate(trainer, train_args.len_preamble_eval, train_args.verbose)
                 val_dict[:t_elapsed] = time() - t0
@@ -302,7 +332,7 @@ function train!(trainer::EchoTrainer, train_args)
         end
         # Print summary statistics
         elapsed = round(time() - t0, digits=1)
-        fber = round.(results[train_args.num_iterations_train][:ber][:, 5], sigdigits=3)
+        fber = round.(_ensemble_train_bers(results[train_args.num_iterations_train][:ber]), sigdigits=3)
         fber = "HT1: $(fber[1]) | HT2: $(fber[2]) | RT: $(fber[3])"
         println("Finished in $elapsed seconds with final BERs $fber")
         # Send final results to controlling task

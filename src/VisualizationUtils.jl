@@ -1,5 +1,6 @@
 module VisualizationUtils
-export plot_demod_grid_unicode, plot_mod_constellation_unicode, plot_bers_train, plot_bers_final
+export plot_demod_grid_unicode, plot_mod_constellation_unicode, plot_bers_train_unicode, plot_bers_snr_unicode, plot_bers_snr_unicode!
+export plot_bers_train, plot_bers_snr
 export modconstellation, demodgrid
 export animate_mod_constellations, animate_demod_grids, animate_agents
 
@@ -14,6 +15,7 @@ using Flux: softmax
 using ..ModulationModels
 using ..DataUtils
 using ..LookupTableUtils
+using ..ResultsUtils
 
 
 ###############################
@@ -265,7 +267,7 @@ end
 
 
 ###############################
-# UNICODE MOD & DEMOD
+# UNICODE MOD, DEMOD, BER
 ###############################
 function plot_demod_grid_unicode(demod; lims=[-1.5, 1.5], density=100, title="Demod Grid")
     _, symbols_si = get_demod_grid(demod, lims, density)
@@ -285,18 +287,44 @@ function plot_mod_constellation_unicode(mod; lims=[-1.5, 1.5], title="Mod Conste
                 xlim=lims, ylim=lims, title=title)
 end
 
+function plot_bers_train_unicode(results; roundtrip::Bool=true)
+    bers = trainbers(results; roundtrip)
+    epochs = sort(collect(keys(results)))
+    UnicodePlots.lineplot(epochs, bers, xlabel="Epoch", ylabel="BER",
+                          width=80)
+end
+
+function plot_bers_snr_unicode(bers::Vector; roundtrip::Bool=true, bits_per_symbol::Int=2, snrs=nothing, label=nothing)
+    if snrs === nothing
+        snrs = roundtrip ? get_test_SNR_dbs_roundtrip(bits_per_symbol) : get_test_SNR_dbs(bits_per_symbol)
+    end
+    data = hcat(snrs, bers)[bers .!= 0, :]
+    UnicodePlots.lineplot(data[:, 1], data[:, 2], xlabel="SNR", ylabel="BER", width=80, yscale=:log10,
+                          ylim=(8e-6, 0.6), xlim=(minimum(snrs), maximum(snrs)), name=label
+                          )
+end
+
+function plot_bers_snr_unicode!(p, bers::Vector; roundtrip::Bool=true, bits_per_symbol::Int=2, snrs=nothing, label=nothing)
+    if snrs === nothing
+        snrs = roundtrip ? get_test_SNR_dbs_roundtrip(bits_per_symbol) : get_test_SNR_dbs(bits_per_symbol)
+    end
+    data = hcat(snrs, bers)[bers .!= 0, :]
+    UnicodePlots.lineplot!(p, data[:, 1], data[:, 2], name=label)
+end
+
+
 
 ###############################
 # TRAINING ANIMATIONS
 ###############################
-function animate_mod_constellations(results; tx_or_rx::Symbol=:tx, only_epochs=nothing, fps=5, filename="mod_const_training.gif")
+function animate_mod_constellations(results; agent_id::Int=1, only_epochs=nothing, fps=5, filename="mod_const_training.gif")
     if only_epochs !== nothing
         epochs = sort(only_epochs)
     else
         epochs = sort(collect(keys(results)))
     end
     anim = @animate for e in epochs
-        cfg = results[e][:kwargs][tx_or_rx]
+        cfg = results[e][:kwargs][Symbol("agent$agent_id")]
         mod = NeuralMod(;cfg.mod...)
         modconstellation(mod, top_margin=5Plots.mm)
         Plots.annotate!([(-1.45, 1.5, Plots.text("Epoch $e", :left, :bottom))])
@@ -305,14 +333,14 @@ function animate_mod_constellations(results; tx_or_rx::Symbol=:tx, only_epochs=n
     gif(anim, filename, fps=fps)
 end
 
-function animate_demod_grids(results; tx_or_rx::Symbol=:tx, only_epochs=nothing, fps=5, filename="demod_grid_training.gif")
+function animate_demod_grids(results; agent_id::Int=1, only_epochs=nothing, fps=5, filename="demod_grid_training.gif")
     if only_epochs !== nothing
         epochs = sort(only_epochs)
     else
         epochs = sort(collect(keys(results)))
     end
     anim = @animate for e in epochs
-        cfg = results[e][:kwargs][tx_or_rx]
+        cfg = results[e][:kwargs][Symbol("agent$agent_id")]
         demod = NeuralDemod(;cfg.demod...)
         demodgrid(demod, top_margin=5Plots.mm)
         Plots.annotate!([(-1.45, 1.5, Plots.text("Epoch $e", :left, :bottom))])
@@ -320,21 +348,24 @@ function animate_demod_grids(results; tx_or_rx::Symbol=:tx, only_epochs=nothing,
     gif(anim, filename, fps=fps)
 end
 
-function animate_agents(results; only_epochs=nothing, fps=5, filename="agent_training.gif", show=true)
+function animate_agents(results; only_epochs=nothing, fps=5, filename="agent_training.gif", show=true, agent_ids=[1, 2])
     if only_epochs !== nothing
         epochs = sort(only_epochs)
     else
         epochs = sort(collect(keys(results)))
     end
+    agent1 = Symbol("agent$(agent_ids[1])")
+    agent2 = Symbol("agent$(agent_ids[2])")
+    # TODO: animate all agents, with backgrounds to identify m/d pairs
     anim = @animate for e in epochs
         cfg = results[e][:kwargs]
-        mod1 = Modulator(;cfg.tx.mod...)
-        demod2 = Demodulator(;cfg.rx.demod...)
+        mod1 = Modulator(;cfg[agent1].mod...)
+        demod2 = Demodulator(;cfg[agent2].demod...)
         roundtrip = false
-        if cfg.rx.mod != (;)
+        if cfg[agent2].mod != (;)
             roundtrip = true
-            mod2 = Modulator(;cfg.rx.mod...)
-            demod1 = Demodulator(;cfg.tx.demod...)
+            mod2 = Modulator(;cfg[agent2].mod...)
+            demod1 = Demodulator(;cfg[agent1].demod...)
         end
         pm1 = modconstellation(mod1, top_margin=5Plots.mm, title="Mod 1")
         Plots.annotate!([(-1.45, 1.5, Plots.text("Epoch $e", :left, :bottom))])
@@ -437,7 +468,7 @@ function plot_bers_train(results; filename="training_bers.png", show=true)
     end
 end
 
-function plot_bers_final(bers; bits_per_symbol=2, filename="final_bers.png", roundtrip=true, show=true)
+function plot_bers_snr(bers; bits_per_symbol=2, filename="final_bers.png", roundtrip=true, show=true)
     p = berplot(bers, bits_per_symbol=bits_per_symbol, roundtrip=roundtrip)
     Plots.savefig(p, filename)
     @info "Saved final BER plot" filename

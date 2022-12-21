@@ -27,9 +27,7 @@ end
 Return final measured BER array from an experiment
 """
 function finalbers(results::NamedTuple)
-    run_results = results.results
-    efinal = maximum(keys(run_results))
-    run_results[efinal][:ber]
+    finalbers(results.results)
 end
 
 function finalbers(results::Dict{Int64, Any})
@@ -45,10 +43,11 @@ If not `roundtrip``, return the first halftrip BER measurement.
 """
 function trainbers(results::Dict{Int64, Any}; roundtrip::Bool=true, column::Int=5)
     epochs = sort(collect(keys(results)))
-    bers = Vector{Float32}(undef, length(epochs))
+    berdims = (length(epochs), size(results[0][:ber], 3))
+    bers = Array{Float32}(undef, berdims)
     irow = roundtrip ? 3 : 1
     for (i, e) in enumerate(epochs)
-        bers[i] = results[e][:ber][irow, column]
+        bers[i, :] = results[e][:ber][irow, column, :]
     end
     bers
 end
@@ -59,9 +58,11 @@ Return agents with state from end of training
 """
 function finalagents(results::Dict{Int64, Any})
     efinal = maximum(keys(results))
-    a1 = Agent(; results[efinal][:kwargs].tx...)
-    a2 = Agent(; results[efinal][:kwargs].rx...)
-    (a1, a2)
+    agents = Agent[]
+    for kwargs in results[efinal][:kwargs]
+        push!(agents, Agent(; kwargs...))
+    end
+    agents
 end
 
 
@@ -76,29 +77,36 @@ function reconstruct_epoch(results::Dict{Int64, Any}, epoch::Int)
         throw(KeyError("Epoch $epoch not in results, try $efinal or $(epochs[imin])"))
     end
     bers = results[epoch][:ber]
-    a1 = Agent(; results[epoch][:kwargs].tx...)
-    a2 = Agent(; results[epoch][:kwargs].rx...)
-    (;agents=(a1, a2), bers=bers)
+    agents = Agent[]
+    for kwargs in results[epoch][:kwargs]
+        push!(agents, Agent(; kwargs...))
+    end
+    (;agents=agents, bers=bers)
 end
 
 
 """
 Find first `dboff` dB-off BER result and return number of training iterations to reach it
 """
-function find_dboff(config, results, dboff)
+function find_dboff(config, results, dboff; worst_ber=true)
     roundtrip = config.train_kwargs.protocol ∈ [ESP, EPP]
     if roundtrip
         trainSNR = get_optimal_SNR_for_BER_roundtrip(config.train_kwargs.target_ber, config.bps)
-        dboffBER = get_optimal_BER_roundtrip(trainSNR - 3, config.bps)
+        dboffBER = get_optimal_BER_roundtrip(trainSNR - dboff, config.bps)
     else
         trainSNR = get_optimal_SNR_for_BER(config.train_kwargs.target_ber, config.bps)
-        dboffBER = get_optimal_BER(trainSNR - 3, config.bps)
+        dboffBER = get_optimal_BER(trainSNR - dboff, config.bps)
     end
     iters = sort(collect(keys(results)))
     dboff_iters = -1
     ber = 0
     for it in iters
-        bers = results[it][:ber][:, 5]
+        # Choose either worst (maximum) BER or mean BER across agent pairs
+        if worst_ber
+            bers = maximum(results[it][:ber], dims=3)[:, 5]
+        else
+            bers = mean(results[it][:ber], dims=3)[:, 5]
+        end
         # For HT protocols, only one ber will be >0
         # For RT protocols, the last ber is what we want
         ber = bers[findlast(x -> x >= 0., bers)]

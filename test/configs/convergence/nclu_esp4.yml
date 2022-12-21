@@ -5,7 +5,7 @@ bps: 4
 
 neural_mod_kwargs:
   bits_per_symbol: "$bps"
-  activation_fn_hidden: tanh
+  activation_fn_hidden: elu
   hidden_layers: [40,40]
   restrict_energy: 1
   log_std_dict:
@@ -14,13 +14,13 @@ neural_mod_kwargs:
     min: -3.0
   lr_dict:
     mu: 5e-4
-    std: 1e-3
+    std: 1e-2
 
 neural_mod_2_kwargs: "$neural_mod_kwargs"
 
 neural_demod_kwargs:
   bits_per_symbol: "$bps"
-  activation_fn_hidden: relu
+  activation_fn_hidden: elu
   hidden_layers: [50]
   lr: 1e-2
 
@@ -33,10 +33,14 @@ classic_agent_sampler_kwargs:
   avg_power: 1.0
 
 agent_types:
-  tx_mod: neural
-  tx_demod: neural
-  rx_mod: classic
-  rx_demod: cluster
+  - mod: neural
+    demod: neural
+    count: 1
+    alt_kwargs: false
+  - mod: classic
+    demod: cluster
+    count: 1
+    alt_kwargs: false
 
 train_kwargs:
   meta:
@@ -57,7 +61,7 @@ train_kwargs:
   len_preamble: 64
   len_preamble_eval: 10000
   plot_initial_eval: false
-  stats_every_train: 50
+  stats_every_train: 10
   num_iterations_train: 1000
   checkpoint_every_train: 300
   optimiser: adam

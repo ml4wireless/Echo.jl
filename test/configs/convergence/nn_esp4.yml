@@ -5,7 +5,7 @@ bps: 4
 
 neural_mod_kwargs:
   bits_per_symbol: "$bps"
-  activation_fn_hidden: tanh
+  activation_fn_hidden: elu
   hidden_layers: [40,40]
   restrict_energy: 1
   log_std_dict:
@@ -20,7 +20,7 @@ neural_mod_2_kwargs: "$neural_mod_kwargs"
 
 neural_demod_kwargs:
   bits_per_symbol: "$bps"
-  activation_fn_hidden: relu
+  activation_fn_hidden: elu
   hidden_layers: [50]
   lr: 1e-3
 
@@ -33,10 +33,15 @@ classic_agent_sampler_kwargs:
   avg_power: 1.0
 
 agent_types:
-  tx_mod: neural
-  tx_demod: neural
-  rx_mod: neural
-  rx_demod: neural
+  - mod: neural
+    demod: neural
+    count: 1
+    alt_kwargs: false
+  - mod: neural
+    demod: neural
+    count: 1
+    alt_kwargs: true
+
 
 train_kwargs:
   meta:

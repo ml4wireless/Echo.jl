@@ -330,13 +330,14 @@ end
 Flux.@functor NeuralMod (μ, log_std, policy, all_unique_symbols)
 Flux.trainable(m::NeuralMod) = (m.μ, m.log_std)
 
-Base.show(io::IO, m::NeuralMod) = @printf(io, "%s(bps=%d, hl=%s, actv_fn=%s, re=%d)",
+Base.show(io::IO, m::NeuralMod) = @printf(io, "%s(bps=%d, hl=%s, actv_fn=%s, re=%d, λμ=%g, λσ=%g)",
     typeof(m), m.bits_per_symbol, plain_print_list(m.hidden_layers),
-    String(Symbol(m.activation_fn_hidden)), m.restrict_energy)
+    String(Symbol(m.activation_fn_hidden)), m.restrict_energy,
+    m.lr_dict.mu, m.lr_dict.std)
 
 function NeuralMod(;bits_per_symbol,
                    hidden_layers,
-                   restrict_energy=1, activation_fn_hidden=tanh,
+                   restrict_energy=1, activation_fn_hidden=elu,
                    activation_fn_output=identity, avg_power=1f0,
                    log_std_dict=(; initial=-1f0, max=1f0, min=-3f0),
                    lr_dict=(; mu=5f-1, std=1f-3),
@@ -530,12 +531,12 @@ end
 # Only the net field of a NeuralDemod struct is trainable
 Flux.@functor NeuralDemod (net,)
 
-Base.show(io::IO, d::NeuralDemod) = @printf(io, "%s(bps=%d, hl=%s, actv_fn=%s)",
+Base.show(io::IO, d::NeuralDemod) = @printf(io, "%s(bps=%d, hl=%s, actv_fn=%s, λ=%g)",
     typeof(d), d.bits_per_symbol, plain_print_list(d.hidden_layers),
-    String(Symbol(d.activation_fn_hidden)))
+    String(Symbol(d.activation_fn_hidden)), d.lr)
 
 function NeuralDemod(;bits_per_symbol::Integer, hidden_layers::Vector{Int},
-                     activation_fn_hidden::Union{Function,String}=tanh,
+                     activation_fn_hidden::Union{Function,String}=elu,
                      activation_fn_output::Function=identity,
                      lr::Real=1f-1, weights=nothing)
     if isa(activation_fn_hidden, String)
@@ -657,5 +658,6 @@ iscuda(m::ClassicMod) = isa(m.rotation, CuArray)
 iscuda(m::NeuralMod) = isa(m.log_std, CuArray)
 iscuda(d::ClassicDemod) = isa(d.rotation, CuArray)
 iscuda(d::NeuralDemod) = isa(d.net[1].weight, CuArray)
+iscuda(::ClusteringDemod) = throw(Error("Unable to determine whether clustering demod is used on gpu or not"))
 
 end

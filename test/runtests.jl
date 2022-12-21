@@ -13,7 +13,8 @@ function run_converges(configfile)
     ec = ExperimentConfig(cfg, "/tmp")
     results, _ = run_experiment(ec, save_results=false)
     bers = finalbers(results)
-    train_snr_bers = bers[:, 5]
+    # Worst-case BER
+    train_snr_bers = maximum(bers, dims=3)[:, 5]
     @info "Final BERs for $configfile" train_snr_bers
     println()
     # Add extra cases for EPP with swapped bit interperpretations
@@ -77,18 +78,23 @@ end
 
 function main(args)
     helpinfo = """
-julia $PROGRAM_FILE [-t] [-c] [-b] [-h]
+julia $PROGRAM_FILE [-t] [-c] [-b] [-m] [-h]
     -c to run convergence tests only
     -t to run timing tests only
     -b to run backprop tests only
+    -m to run multiagent tests only
     -h to print help
 """
+
     # Uncomment to disable progressbar printouts
     # ENV["CI"] = "true"
-    configs = sort(readdir("configs/convergence/", join=true, sort=true))
+
+    configs = readdir("configs/convergence/", join=true, sort=true)
     nnconf = filter(contains("nn_"), configs)
     ncconf = filter(contains("nc_"), configs)
     ncluconf = filter(contains("nclu_"), configs)
+    maconf = readdir("configs/multiagent/", join=true, sort=true)
+    maconf = filter(endswith("yml"), maconf)
 
     if "-h" ∈ args
         println(helpinfo)
@@ -96,7 +102,7 @@ julia $PROGRAM_FILE [-t] [-c] [-b] [-h]
     end
 
     @testset "All tests" begin
-        if "-t" ∉ args && "-b" ∉ args
+        if "-t" ∉ args && "-b" ∉ args && "-m" ∉ args
             @testset "BER convergence" begin
                 @testset "NN convergence" begin
                     for c in nnconf
@@ -120,7 +126,7 @@ julia $PROGRAM_FILE [-t] [-c] [-b] [-h]
             # End BER convergence
         end
 
-        if "-c" ∉ args && "-b" ∉ args
+        if "-c" ∉ args && "-b" ∉ args && "-m" ∉ args
             @testset "Run timing" begin
                 @testset "NN runtime" begin
                     # timings = repeat([2], length(nnconf))
@@ -150,7 +156,7 @@ julia $PROGRAM_FILE [-t] [-c] [-b] [-h]
             # End run timing
         end
 
-        if "-t" ∉ args && "-c" ∉ args
+        if "-t" ∉ args && "-c" ∉ args && "-m" ∉ args
             @testset "Gradient check" begin
                 @testset "NN gradients" begin
                     for c in nnconf
@@ -172,6 +178,15 @@ julia $PROGRAM_FILE [-t] [-c] [-b] [-h]
 
             end
             # End gradient check
+        end
+
+        if "-t" ∉ args && "-c" ∉ args && "-b" ∉ args
+            @testset "Multiagent convergence" begin
+                for c in maconf
+                    @test run_converges(c)
+                end
+            end
+            # End multiagent convergence
         end
     # End all tests
     end
