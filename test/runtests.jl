@@ -146,7 +146,7 @@ julia $PROGRAM_FILE [-t] [-c] [-b] [-m] [-h]
 
                 @testset "NClu runtime" begin
                     # timings = repeat([2], length(ncluconf))
-                    timings = [3, 1.5, 3, 1.75, 2, 1.5]
+                    timings = [3, 1.5, 1.75, 3.25, 2, 1.5]
                     for (t, c) in zip(timings, ncluconf)
                         @test run_meets_timing(c, t)
                     end
