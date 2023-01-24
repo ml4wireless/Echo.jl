@@ -158,8 +158,10 @@ end
 get_mod(expmt::ExperimentConfig) = NeuralMod(;expmt.config.neural_mod_kwargs...)
 
 function get_opp_mod(expmt::ExperimentConfig)
-    if expmt.config.agent_types.rx_mod == "neural"
-        mod = NeuralMod(;expmt.config.neural_mod_2_kwargs...)
+    if expmt.config.agent_types[2].mod == "neural"
+        kwargs = expmt.config.agent_types[2].alt_kwargs ? expmt.config.neural_mod_2_kwargs :
+                                                          expmt.config.neural_mod_kwargs
+        mod = NeuralMod(;kwargs...)
     else
         sampler = ClassicAgentSampler(;expmt.config.classic_agent_sampler_kwargs...)
         mod = rand(sampler).mod
@@ -168,9 +170,9 @@ function get_opp_mod(expmt::ExperimentConfig)
 end
 
 function get_demod(expmt::ExperimentConfig)
-    if expmt.config.agent_types.tx_demod == "neural"
+    if expmt.config.agent_types[1].demod == "neural"
         demod = NeuralDemod(;expmt.config.neural_demod_kwargs...)
-    elseif expmt.config.agent_types.tx_demod == "classic"
+    elseif expmt.config.agent_types[1].demod == "classic"
         sampler = ClassicAgentSampler(expmt.config.classic_agent_sampler_kwargs...)
         demod = rand(sampler).demod
     else
@@ -180,10 +182,12 @@ function get_demod(expmt::ExperimentConfig)
 end
 
 function get_opp_demod(expmt::ExperimentConfig)
-    if expmt.config.agent_types.rx_demod == "neural"
-        demod = NeuralDemod(;expmt.config.neural_demod_kwargs...)
-    elseif expmt.config.agent_types.rx_demod == "classic"
-        sampler = ClassicAgentSampler(;expmt.config.classic_agent_sampler_kwargs...)
+    if expmt.config.agent_types[2].demod == "neural"
+        kwargs = expmt.config.agent_types[2].alt_kwargs ? expmt.config.neural_demod_2_kwargs :
+                                                          expmt.config.neural_demod_kwargs
+        demod = NeuralDemod(;kwargs...)
+    elseif expmt.config.agent_types[2].demod == "classic"
+        sampler = ClassicAgentSampler(expmt.config.classic_agent_sampler_kwargs...)
         demod = rand(sampler).demod
     else
         demod = ClusteringDemod(bits_per_symbol=expmt.bps)
@@ -193,17 +197,11 @@ end
 
 function reconstruct_agents(config, results, iter)
     kwargs = results[0][:kwargs]
-    m1_type = agent_type_map[config.agent_types.tx_mod * "mod"]
-    m2_type = agent_type_map[config.agent_types.rx_mod * "mod"]
-    d1_type = agent_type_map[config.agent_types.tx_demod * "demod"]
-    d2_type = agent_type_map[config.agent_types.rx_demod * "demod"]
-    m1 = m1_type(;kwargs.tx.mod...)
-    d1 = d1_type(;kwargs.tx.demod...)
-    m2 = m2_type(;kwargs.rx.mod...)
-    d2 = d2_type(;kwargs.rx.demod...)
-    a1 = Agent(m1, d1)
-    a2 = Agent(m2, d2)
-    a1, a2
+    agents = Agent[]
+    for agent in values(kwargs)
+        push!(Agent(mod=agent.mod, demod=agent.demod))
+    end
+    agents
 end
 
 end
