@@ -2,7 +2,7 @@ module EchoTrainers
 export EchoTrainer, train!
 
 using Flux
-using Flux.Optimise
+using Optimisers
 using ProgressMeter
 using Statistics
 using StatsBase: sample
@@ -41,60 +41,58 @@ end
 
 
 """
-Collect non-classic models with optimisers and both individual & collective parameters
+Initialize optimisers for neural models.
+
+Returns (optims, optimised_models) tuple
+- `optims`: list of optimisers for every trained model
+- `optimised_models`: list of optimised models in matching order
 """
-function get_optimisers_params(agents, optimiser=Flux.Adam)
-    optims = IdDict()
-    indiv_params = IdDict()
-    all_params, _ = multi_agent_params(agents)
+function get_optimisers(agents, optimiser=Optimisers.Adam)
+    optims = []
     optim_models = []
     for a in agents
         if isneural(a.mod)
             push!(optim_models, a.mod)
-            optims[a.mod.μ] = optimiser(a.mod.lr_dict.mu)
-            indiv_params[a.mod.μ] = Flux.params(a.mod.μ)
-            optims[a.mod.log_std] = optimiser(a.mod.lr_dict.std)
-            indiv_params[a.mod.log_std] = Flux.params(a.mod.log_std)
+            rule = optimiser(a.mod.lr_dict.mu)
+            state = Optimisers.setup(rule, a.mod)
+            # Separate η for log_std
+            Optimisers.adjust!(state[:log_std], a.mod.lr_dict.std)
+            push!(optims, state)
         end
         if isneural(a.demod)
             push!(optim_models, a.demod)
-            optims[a.demod] = optimiser(a.demod.lr)
-            indiv_params[a.demod] = Flux.params(a.demod)
+            rule = optimiser(a.demod.lr)
+            state = Optimisers.setup(rule, a.demod)
+            push!(optims, state)
         end
     end
-    (;optims=optims, optimised_models=optim_models, all_params=all_params, indiv_params=indiv_params)
+    (;optims=optims, optimised_models=optim_models)
 end
 
 
 """
-Apply optimiser updates to models based on grads
+Apply optimiser updates to models based on grads.
+
+Uses in-place version of update! which is more efficient, but mutates the
+original model, and returns a new model which is the only copy guaranteed
+to be correct.
+
+Returns:
+- New optimiser states `newoptims`: Array of updated optimiser state, rule trees
+- New optimised models `newmodels`: Array of updated models which must be
+                                    assigned back to any higher level containers
 """
-function apply_model_updates!(grads, optims, models, indiv_params; update_log_std::Bool=true)
-    for m in models
-        if ismod(m)
-            # Update μ parameters
-            ps = indiv_params[m.μ]
-            opt = optims[m.μ]
-            for p in ps
-                Flux.update!(opt, p, grads[p])
-            end
-            # Update log_std parameters
-            if update_log_std
-                ps = indiv_params[m.log_std]
-                opt = optims[m.log_std]
-                for p in ps
-                    Flux.update!(opt, p, grads[p])
-                end
-            end
-        else
-            # Update demod parameters
-            ps = indiv_params[m]
-            opt = optims[m]
-            for p in ps
-                Flux.update!(opt, p, grads[p])
-            end
+function apply_model_updates!(optims, models, grads; update_log_std::Bool=true)
+    newoptims, newmodels = [], []
+    for (o, m, g) in zip(optims, models, grads)
+        if !update_log_std && hasfield(m, :log_std)
+            Optimisers.freeze!(o[:log_std])
         end
+        newo, newm = Optimisers.update!(o, m, g)
+        push!(newoptims, newo)
+        push!(newmodels, newm)
     end
+    newoptims, newmodels
 end
 
 
@@ -127,8 +125,7 @@ end
 Gradient Passing update logic
 """
 function update_gradient_passing!(simulator, eavesdroppers, SNR_db,
-                                  optims, models, all_params, indiv_params,
-                                  verbose)
+                                  optims, optim_models, verbose)
     a1 = simulator.agent1
     a2 = simulator.agent2
     loss = 0
@@ -141,8 +138,8 @@ function update_gradient_passing!(simulator, eavesdroppers, SNR_db,
     if verbose
         println("loss: $(loss)")
     end
-    apply_model_updates!(grads, optims, models, indiv_params, update_log_std=false)
-    (; loss = loss,)
+    optims, optim_models = apply_model_updates!(optims, optim_models, grads, update_log_std=false)
+    (; optims, optim_models, loss)
 end
 
 
@@ -150,8 +147,7 @@ end
 Loss Passing update logic
 """
 function update_loss_passing!(simulator, eavesdroppers, SNR_db,
-                              optims, models, all_params, indiv_params,
-                              verbose)
+                              optims, optim_models, verbose)
     a1 = simulator.agent1
     a2 = simulator.agent2
     m1_loss = d2_loss = 0
@@ -173,8 +169,8 @@ function update_loss_passing!(simulator, eavesdroppers, SNR_db,
     if verbose
         println("m1 loss: $(m1_loss), d2 loss: $(d2_loss)")
     end
-    apply_model_updates!(grads, optims, models, indiv_params)
-    (; m1_loss = m1_loss, d2_loss = d2_loss)
+    optims, optim_models = apply_model_updates!(optims, optim_models, grads)
+    (; optims, optim_models, m1_loss, d2_loss)
 end
 
 
@@ -182,8 +178,7 @@ end
 Shared preamble update logic
 """
 function update_shared_preamble!(simulator, eavesdroppers, SNR_db,
-                                 optims, models, all_params, indiv_params,
-                                 verbose)
+                                 optims, optim_models, verbose)
     a1 = simulator.agent1
     a2 = simulator.agent2
     d1_loss = d2_loss = m1_loss = m2_loss = 0
@@ -213,8 +208,8 @@ function update_shared_preamble!(simulator, eavesdroppers, SNR_db,
     if verbose
         println("m1 loss: $(m1_loss), m2 loss: $(m2_loss), d1 loss: $(d1_loss), d2 loss: $(d2_loss)")
     end
-    apply_model_updates!(grads, optims, models, indiv_params)
-    (; m1_loss = m1_loss, m2_loss = m2_loss, d1_loss = d1_loss, d2_loss = d2_loss)
+    optims, optim_models = apply_model_updates!(optims, optim_models, grads)
+    (; optims, optim_models, m1_loss, m2_loss, d1_loss, d2_loss)
 end
 
 
@@ -222,8 +217,7 @@ end
 Private preamble update logic
 """
 function update_private_preamble!(simulator, eavesdroppers, SNR_db,
-                                  optims, models, all_params, indiv_params,
-                                  verbose)
+                                  optims, optim_models, verbose)
     a1 = simulator.agent1
     a2 = simulator.agent2
     d1_loss = d2_loss = m1_loss = m2_loss = 0
@@ -254,8 +248,8 @@ function update_private_preamble!(simulator, eavesdroppers, SNR_db,
     if verbose
         println("m1 loss: $(m1_loss), m2 loss: $(m2_loss), d1 loss: $(d1_loss), d2 loss: $(d2_loss)")
     end
-    apply_model_updates!(grads, optims, models, indiv_params)
-    (; m1_loss = m1_loss, m2_loss = m2_loss, d1_loss = d1_loss, d2_loss = d2_loss)
+    optims, optim_models = apply_model_updates!(optims, optim_models, grads)
+    (; optims, optim_models, m1_loss, m2_loss, d1_loss, d2_loss)
 end
 
 
@@ -275,9 +269,7 @@ function train!(trainer::EchoTrainer, train_args)
         end
         println("Training at $(SNR_db) dB SNR")
         # Per-model and separate mu & log_std optimizers for individual learning rates
-        optims, _, all_params, indiv_params = get_optimisers_params(
-            trainer.agents, get_optimiser_type(train_args.optimiser)
-        )
+        optims, optim_models = get_optimisers(trainer.agents, get_optimiser_type(train_args.optimiser))
         # Setup progress logging
         is_logging(io) = isa(io, Base.TTY) == false || (get(ENV, "CI", nothing) == "true")
         p = Progress(train_args.num_iterations_train, dt=0.25, output=stderr, enabled=!is_logging(stderr))
@@ -304,7 +296,9 @@ function train!(trainer::EchoTrainer, train_args)
                 idx1, idx2 = sample(1:nagents, 2, replace=false)
             end
             a1, a2 = trainer.agents[idx1], trainer.agents[idx2]
+            o1, o2 = optims[idx1], optims[idx2]
             eavesdroppers = trainer.agents[ones(Bool, nagents) .&& (1:nagents .!= idx1) .&& (1:nagents .!= idx2)]
+            # TODO: still necessary?
             if train_args.protocol ∈ [GP, LP]
                 sim_models = filter(isneural, [a1.mod, a2.demod])
             else
@@ -312,11 +306,12 @@ function train!(trainer::EchoTrainer, train_args)
             end
             # Run simulation and update
             simulator = trainer.simulator_class(a1, a2, bps, train_args.len_preamble, iscuda(trainer.agents[1]))
-            losses = trainer.update_fn!(
+            newoptims, newa12, losses = trainer.update_fn!(
                 simulator, eavesdroppers, SNR_db,
-                optims, sim_models, all_params, indiv_params,
-                train_args.verbose
+                (o1, o2), (a1, a2), train_args.verbose
             )
+            optims[idx1] = newoptims[1]; optims[idx2] = newoptims[2]
+            trainer.agents[idx1] = newa12[1]; trainer.agents[idx2] = newa12[2]
             # Validate
             if iter % train_args.stats_every_train == 0 || iter == train_args.num_iterations_train
                 val_dict = validate(trainer, train_args.len_preamble_eval, train_args.verbose)

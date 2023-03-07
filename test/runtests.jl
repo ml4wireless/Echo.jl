@@ -76,13 +76,98 @@ function run_gradient_check(configfile)
 end
 
 
+function testconvergence(nnconf, ncconf, ncluconf)
+    @testset "BER convergence" begin
+        @testset "NN convergence" begin
+            for c in nnconf
+                @test run_converges(c)
+            end
+        end
+
+        @testset "NC convergence" begin
+            for c in ncconf
+                @test run_converges(c)
+            end
+        end
+
+        @testset "NClu convergence" begin
+            for c in ncluconf
+                @test run_converges(c)
+            end
+        end
+    end
+end
+
+
+function testtiming(nnconf, ncconf, ncluconf)
+    @testset "Run timing" begin
+        @testset "NN runtime" begin
+            # timings = repeat([2], length(nnconf))
+            timings = [2, 1.75, 2.5, 1.25, 1.25, 1]
+            for (t, c) in zip(timings, nnconf)
+                @test run_meets_timing(c, t)
+            end
+        end
+
+        @testset "NC runtime" begin
+            # timings = repeat([2], length(ncconf))
+            timings = [1, 1, 1.25, .75, 1, .75]
+            for (t, c) in zip(timings, ncconf)
+                @test run_meets_timing(c, t)
+            end
+        end
+
+        @testset "NClu runtime" begin
+            # timings = repeat([2], length(ncluconf))
+            timings = [3, 1.5, 1.75, 3.25, 2, 1.5]
+            for (t, c) in zip(timings, ncluconf)
+                @test run_meets_timing(c, t)
+            end
+        end
+    end
+end
+
+
+function testgradients(nnconf, ncconf, ncluconf)
+    @testset "Gradient check" begin
+        @testset "NN gradients" begin
+            for c in nnconf
+                @test run_gradient_check(c)
+            end
+        end
+
+        @testset "NC gradients" begin
+            for c in ncconf
+                @test run_gradient_check(c)
+            end
+        end
+
+        @testset "NClu gradients" begin
+            for c in ncluconf
+                @test run_gradient_check(c)
+            end
+        end
+    end
+end
+
+
+function testmultiagent(maconf)
+    @testset "Multiagent convergence" begin
+        for c in maconf
+            @test run_converges(c)
+        end
+    end
+end
+
+
 function main(args)
     helpinfo = """
-julia $PROGRAM_FILE [-t] [-c] [-b] [-m] [-h]
+julia $PROGRAM_FILE [-t] [-c] [-b] [-m] [-o] [-h]
     -c to run convergence tests only
     -t to run timing tests only
     -b to run backprop tests only
     -m to run multiagent tests only
+    -o to run optimizer tests only
     -h to print help
 """
 
@@ -102,94 +187,11 @@ julia $PROGRAM_FILE [-t] [-c] [-b] [-m] [-h]
     end
 
     @testset "All tests" begin
-        if "-t" ∉ args && "-b" ∉ args && "-m" ∉ args
-            @testset "BER convergence" begin
-                @testset "NN convergence" begin
-                    for c in nnconf
-                        @test run_converges(c)
-                    end
-                end
-
-                @testset "NC convergence" begin
-                    for c in ncconf
-                        @test run_converges(c)
-                    end
-                end
-
-                @testset "NClu convergence" begin
-                    for c in ncluconf
-                        @test run_converges(c)
-                    end
-                end
-
-            end
-            # End BER convergence
-        end
-
-        if "-c" ∉ args && "-b" ∉ args && "-m" ∉ args
-            @testset "Run timing" begin
-                @testset "NN runtime" begin
-                    # timings = repeat([2], length(nnconf))
-                    timings = [2, 1.75, 2.5, 1.25, 1.25, 1]
-                    for (t, c) in zip(timings, nnconf)
-                        @test run_meets_timing(c, t)
-                    end
-                end
-
-                @testset "NC runtime" begin
-                    # timings = repeat([2], length(ncconf))
-                    timings = [1, 1, 1.25, .75, 1, .75]
-                    for (t, c) in zip(timings, ncconf)
-                        @test run_meets_timing(c, t)
-                    end
-                end
-
-                @testset "NClu runtime" begin
-                    # timings = repeat([2], length(ncluconf))
-                    timings = [3, 1.5, 1.75, 3.25, 2, 1.5]
-                    for (t, c) in zip(timings, ncluconf)
-                        @test run_meets_timing(c, t)
-                    end
-                end
-
-            end
-            # End run timing
-        end
-
-        if "-t" ∉ args && "-c" ∉ args && "-m" ∉ args
-            @testset "Gradient check" begin
-                @testset "NN gradients" begin
-                    for c in nnconf
-                        @test run_gradient_check(c)
-                    end
-                end
-
-                @testset "NC gradients" begin
-                    for c in ncconf
-                        @test run_gradient_check(c)
-                    end
-                end
-
-                @testset "NClu gradients" begin
-                    for c in ncluconf
-                        @test run_gradient_check(c)
-                    end
-                end
-
-            end
-            # End gradient check
-        end
-
-        if "-t" ∉ args && "-c" ∉ args && "-b" ∉ args
-            @testset "Multiagent convergence" begin
-                for c in maconf
-                    @test run_converges(c)
-                end
-            end
-            # End multiagent convergence
+        if length(args) > 0
+            println(args)
         end
     # End all tests
     end
 end
 
-main(ARGS)
+# main(ARGS)

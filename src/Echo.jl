@@ -3,6 +3,7 @@ module Echo
 include("Protocols.jl")
 include("ConfigUtils.jl")
 include("DataUtils.jl")
+include("ExtraOptimisers.jl")
 include("FluxUtils.jl")
 include("ModulationUtils.jl")
 include("LookupTableUtils.jl")

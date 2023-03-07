@@ -65,7 +65,7 @@ end
 # Only the rotation field of a ClassicMod struct is trainable
 # but symbol map should also be sent to the desired device
 Flux.@functor ClassicMod (rotation, symbol_map)
-Flux.trainable(m::ClassicMod) = (m.rotation,)
+Flux.trainable(m::ClassicMod) = (; rotation=m.rotation,)
 
 Base.show(io::IO, m::ClassicMod) = @printf(io, "%s(bps=%d, rot=%.1f)",
     typeof(m), m.bits_per_symbol, 180/pi*m.rotation[1])
@@ -146,7 +146,7 @@ end
 # Only the rotation field of a ClassicDemod struct is trainable
 # but symbol map should also be sent to the desired device
 Flux.@functor ClassicDemod (rotation, symbol_map)
-Flux.trainable(d::ClassicDemod) = (d.rotation,)
+Flux.trainable(d::ClassicDemod) = (; rotation=d.rotation,)
 
 Base.show(io::IO, d::ClassicDemod) = @printf(io, "%s(bps=%d, rot=%.1f)",
     typeof(d), d.bits_per_symbol, 180/pi*d.rotation[1])
@@ -328,7 +328,7 @@ end
 
 # Only the μ and log_std fields of a NeuralMod struct are trainable
 Flux.@functor NeuralMod (μ, log_std, policy, all_unique_symbols)
-Flux.trainable(m::NeuralMod) = (m.μ, m.log_std)
+Flux.trainable(m::NeuralMod) = (; μ=m.μ, log_std=m.log_std)
 
 Base.show(io::IO, m::NeuralMod) = @printf(io, "%s(bps=%d, hl=%s, actv_fn=%s, re=%d, λμ=%g, λσ=%g)",
     typeof(m), m.bits_per_symbol, plain_print_list(m.hidden_layers),

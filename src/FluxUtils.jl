@@ -4,12 +4,14 @@ module FluxUtils
 using CUDA: CuArray
 using Flux
 using Zygote
+using Optimisers
 using ElasticArrays
 using Statistics
 using Distributions
 import Random
 
 using ..DataUtils
+using ..ExtraOptimisers
 
 export multi_agent_params, get_optimiser_type
 export Memory, memorize!
@@ -19,6 +21,8 @@ export symbols_to_onehot, logits_to_symbols_si, logits_to_symbols_sb, normlogpdf
 
 
 """
+Deprecated
+
 Construct Params object for all models in agents
 Returns params, list of models
 """
@@ -33,9 +37,19 @@ Return Flux optimiser type from name
 """
 function get_optimiser_type(name)
     if lowercase(name) == "adam"
-        return Flux.Adam
+        return Optimisers.Adam
     elseif lowercase(name) == "sgd"
-        return Flux.Descent
+        return Optimisers.Descent
+    elseif lowercase(name) == "adamw"
+        return Optimisers.AdamW
+    elseif lowercase(name) == "oadam"
+        return Optimisers.OAdam
+    elseif lowercase(name) == "adabelief"
+        return Optimisers.AdaBelief
+    elseif lowercase(name) == "yogi"
+        return Yogi
+    elseif lowercase(name) == "madgrad"
+        return MADGrad
     else
         throw(ValueError("Unknown optimiser $(name)"))
     end
