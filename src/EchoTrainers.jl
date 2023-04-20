@@ -83,6 +83,10 @@ Returns:
                                     assigned back to any higher level containers
 """
 function apply_model_updates!(optims, models, grads; update_log_std::Bool=true)
+    @show optims
+    @show models
+    @show grads
+    throw(Error("breakpoint"))
     newoptims, newmodels = [], []
     for (o, m, g) in zip(optims, models, grads)
         if !update_log_std && hasfield(m, :log_std)
@@ -130,7 +134,7 @@ function update_gradient_passing!(simulator, eavesdroppers, SNR_db,
     a2 = simulator.agent2
     loss = 0
     local res
-    grads = Flux.gradient(all_params) do
+    grads = Flux.gradient(optim_models) do agents
         res = simulate(simulator, SNR_db, explore=true)
         target = symbols_to_onehot(res.preamble)
         loss = loss_crossentropy(logits=res.d2_logits, target=target)
@@ -152,16 +156,16 @@ function update_loss_passing!(simulator, eavesdroppers, SNR_db,
     a2 = simulator.agent2
     m1_loss = d2_loss = 0
     local res
-    grads = Flux.gradient(all_params) do
+    grads = Flux.gradient(optim_models) do agents
         res = simulate(simulator, SNR_db, explore=true)
         target = symbols_to_onehot(res.preamble)
-        if isneural(a2.demod)
+        if isneural(agents[2].demod)
             # Train demod
-            d2_loss = loss(a2.demod, logits=res.d2_logits, target=target)
+            d2_loss = loss(agents[2].demod, logits=res.d2_logits, target=target)
         end
-        if isneural(a1.mod)
+        if isneural(agents[1].mod)
             # Train mod
-            m1_loss = loss(a1.mod, symbols=res.preamble, received_symbols=res.d2_symbs, actions=res.m1_actions)
+            m1_loss = loss(agents[1].mod, symbols=res.preamble, received_symbols=res.d2_symbs, actions=res.m1_actions)
         end
         loss_sum = m1_loss + d2_loss
         loss_sum  # Need to sum all losses to force backprop through all models
@@ -179,28 +183,26 @@ Shared preamble update logic
 """
 function update_shared_preamble!(simulator, eavesdroppers, SNR_db,
                                  optims, optim_models, verbose)
-    a1 = simulator.agent1
-    a2 = simulator.agent2
     d1_loss = d2_loss = m1_loss = m2_loss = 0
     local res
-    grads = Flux.gradient(all_params) do
+    grads = Flux.gradient(optim_models) do agents
         res = simulate(simulator, SNR_db, explore=true)
         target = symbols_to_onehot(res.preamble1)
-        if isneural(a1.demod)
+        if isneural(agents[1].demod)
             # Train demod of a1 agent
-            d1_loss = loss(a1.demod, logits=res.d1_logits, target=target)
+            d1_loss = loss(agents[1].demod, logits=res.d1_logits, target=target)
         end
-        if isneural(a2.demod)
+        if isneural(agents[2].demod)
             # Train demod of a2 agent
-            d2_loss = loss(a2.demod, logits=res.d2_logits, target=target)
+            d2_loss = loss(agents[2].demod, logits=res.d2_logits, target=target)
         end
-        if isneural(a1.mod)
+        if isneural(agents[1].mod)
             # Train mod of a1 agent
-            m1_loss = loss(a1.mod, symbols=res.preamble1, received_symbols=res.d1_rt_symbs, actions=res.m1_actions)
+            m1_loss = loss(agents[1].mod, symbols=res.preamble1, received_symbols=res.d1_rt_symbs, actions=res.m1_actions)
         end
-        if isneural(a2.mod)
+        if isneural(agents[2].mod)
             # Train mod of a2 agent
-            m2_loss = loss(a2.mod, symbols=res.preamble2, received_symbols=res.d2_rt_symbs, actions=res.m2_actions)
+            m2_loss = loss(agents[2].mod, symbols=res.preamble2, received_symbols=res.d2_rt_symbs, actions=res.m2_actions)
         end
         loss_sum = m1_loss + m2_loss + d1_loss + d2_loss
         loss_sum  # Need to sum all losses to force backprop through all models
@@ -222,25 +224,25 @@ function update_private_preamble!(simulator, eavesdroppers, SNR_db,
     a2 = simulator.agent2
     d1_loss = d2_loss = m1_loss = m2_loss = 0
     local res
-    grads = Flux.gradient(all_params) do
+    grads = Flux.gradient(optim_models) do agents
         res = simulate(simulator, SNR_db, explore=true)
         target1 = symbols_to_onehot(res.preamble1)
         target2 = symbols_to_onehot(res.preamble2)
-        if isneural(a1.demod)
+        if isneural(agents[1].demod)
             # Train demod of a1 agent
-            d1_loss = loss(a1.demod, logits=res.d1_rt_logits, target=target1)
+            d1_loss = loss(agents[1].demod, logits=res.d1_rt_logits, target=target1)
         end
-        if isneural(a2.demod)
+        if isneural(agents[2].demod)
             # Train demod of a2 agent
-            d2_loss = loss(a2.demod, logits=res.d2_rt_logits, target=target2)
+            d2_loss = loss(agents[2].demod, logits=res.d2_rt_logits, target=target2)
         end
-        if isneural(a1.mod)
+        if isneural(agents[1].mod)
             # Train mod of a1 agent
-            m1_loss = loss(a1.mod, symbols=res.preamble1, received_symbols=res.d1_rt_symbs, actions=res.m1_actions)
+            m1_loss = loss(agents[1].mod, symbols=res.preamble1, received_symbols=res.d1_rt_symbs, actions=res.m1_actions)
         end
-        if isneural(a2.mod)
+        if isneural(agents[2].mod)
             # Train mod of a2 agent
-            m2_loss = loss(a2.mod, symbols=res.preamble2, received_symbols=res.d2_rt_symbs, actions=res.m2_actions)
+            m2_loss = loss(agents[2].mod, symbols=res.preamble2, received_symbols=res.d2_rt_symbs, actions=res.m2_actions)
         end
         loss_sum = m1_loss + m2_loss + d1_loss + d2_loss
         loss_sum  # Need to sum all losses to force backprop through all models

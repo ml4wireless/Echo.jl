@@ -160,6 +160,16 @@ function testmultiagent(maconf)
 end
 
 
+function testoptimizers(optconf)
+    @testset "Optimizers" begin
+        for c in optconf
+            @test run_converges(c)
+        end
+    end
+end
+
+
+
 function main(args)
     helpinfo = """
 julia $PROGRAM_FILE [-t] [-c] [-b] [-m] [-o] [-h]
@@ -179,9 +189,10 @@ julia $PROGRAM_FILE [-t] [-c] [-b] [-m] [-o] [-h]
     ncconf = filter(contains("nc_"), configs)
     ncluconf = filter(contains("nclu_"), configs)
     maconf = readdir("configs/multiagent/", join=true, sort=true)
-    maconf = filter(endswith("yml"), maconf)
+    optconf = readdir("configs/optim/", join=true, sort=true)
 
-    if "-h" ∈ args
+
+    if "-h" ∈ args || length(args) > 1
         println(helpinfo)
         return
     end
@@ -189,6 +200,24 @@ julia $PROGRAM_FILE [-t] [-c] [-b] [-m] [-o] [-h]
     @testset "All tests" begin
         if length(args) > 0
             println(args)
+        end
+
+        if "-t" ∈ args
+            testtiming(nnconf, ncconf, ncluconf)
+        elseif "-c" ∈ args
+            testconvergence(nnconf, ncconf, ncluconf)
+        elseif "-b" ∈ args
+            testgradients(nnconf, ncconf, ncluconf)
+        elseif "-m" ∈ args
+            testmultiagent(maconf)
+        elseif "-o" ∈ args
+            testoptimizers(optconf)
+        else
+            testtiming(nnconf, ncconf, ncluconf)
+            testconvergence(nnconf, ncconf, ncluconf)
+            testgradients(nnconf, ncconf, ncluconf)
+            testmultiagent(maconf)
+            testoptimizers(optconf)
         end
     # End all tests
     end

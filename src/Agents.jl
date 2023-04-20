@@ -10,6 +10,7 @@ import .ModulationModels.iscuda
 using Random
 import Random.rand
 using Flux: @functor
+import Flux.trainable
 
 MaybeCMod = Union{ClassicMod, Nothing}
 MaybeNMod = Union{NeuralMod, Nothing}
@@ -208,6 +209,19 @@ function Agent(;mod::Union{NamedTuple, Nothing}, demod::Union{NamedTuple, Nothin
     newmod = mod === nothing ? mod : Modulator(; mod...)
     newdemod = demod === nothing ? demod : Demodulator(; demod...)
     Agent(newmod, newdemod)
+end
+
+"""Trainable fields for Agent"""
+function Flux.trainable(a::Agent)
+    if a.mod === nothing && a.demod === nothing
+        return ()
+    elseif a.mod === nothing
+        return (; demod=a.demod)
+    elseif a.demod === nothing
+        return (; mod=a.mod)
+    else
+        return (; mod=a.mod, demod=a.demod)
+    end
 end
 
 

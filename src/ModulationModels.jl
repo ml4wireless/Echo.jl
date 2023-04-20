@@ -60,23 +60,24 @@ struct ClassicMod{V <: AbstractVector{Float32}, M <: AbstractMatrix{Float32}} <:
     rotation::V
     avg_power::Float32
     symbol_map::M
+    trainable::Bool
 end
 
 # Only the rotation field of a ClassicMod struct is trainable
 # but symbol map should also be sent to the desired device
 Flux.@functor ClassicMod (rotation, symbol_map)
-Flux.trainable(m::ClassicMod) = (; rotation=m.rotation,)
+Flux.trainable(m::ClassicMod) = m.trainable ? (; rotation=m.rotation,) : ()
 
 Base.show(io::IO, m::ClassicMod) = @printf(io, "%s(bps=%d, rot=%.1f)",
     typeof(m), m.bits_per_symbol, 180/pi*m.rotation[1])
 
-function ClassicMod(;bits_per_symbol::Integer, rotation_deg::Real=0., avg_power::Real=1.)
+function ClassicMod(;bits_per_symbol::Integer, rotation_deg::Real=0., avg_power::Real=1., trainable::Bool=false)
     symbol_map = get_symbol_map(bits_per_symbol)
     # symbol_map = rotation_matrix(rotation) * symbol_map
     curr_avg_power = mean(sum(abs2.(symbol_map), dims=1))
     normalization_factor = sqrt((relu(curr_avg_power - avg_power) + avg_power) / avg_power)
     return ClassicMod(bits_per_symbol, Float32[convert(Float32, pi / 180 * rotation_deg)], avg_power,
-                      symbol_map .* normalization_factor)
+                      symbol_map .* normalization_factor, trainable)
 end
 
 
@@ -141,23 +142,24 @@ struct ClassicDemod{V <: AbstractVector{Float32}, M <: AbstractMatrix{Float32}} 
     rotation::V
     avg_power::Float32
     symbol_map::M
+    trainable::Bool
 end
 
 # Only the rotation field of a ClassicDemod struct is trainable
 # but symbol map should also be sent to the desired device
 Flux.@functor ClassicDemod (rotation, symbol_map)
-Flux.trainable(d::ClassicDemod) = (; rotation=d.rotation,)
+Flux.trainable(d::ClassicDemod) = d.trainable ? (; rotation=d.rotation,) : ()
 
 Base.show(io::IO, d::ClassicDemod) = @printf(io, "%s(bps=%d, rot=%.1f)",
     typeof(d), d.bits_per_symbol, 180/pi*d.rotation[1])
 
-function ClassicDemod(;bits_per_symbol::Integer, rotation_deg::Real=0f0, avg_power::Real=1.)
+function ClassicDemod(;bits_per_symbol::Integer, rotation_deg::Real=0f0, avg_power::Real=1., trainable::Bool=false)
     symbol_map = get_symbol_map(bits_per_symbol)
     # symbol_map = rotation_matrix(rotation) * symbol_map
     curr_avg_power = mean(sum(abs2.(symbol_map), dims=1))
     normalization_factor = sqrt((relu(curr_avg_power - avg_power) + avg_power) / avg_power)
     return ClassicDemod(bits_per_symbol, [convert(Float32, pi / 180 * rotation_deg)], avg_power,
-                        symbol_map .* normalization_factor)
+                        symbol_map .* normalization_factor, trainable)
 end
 
 
