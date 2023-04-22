@@ -35,7 +35,7 @@ end
 
 
 """
-Set all setkey parameters to val
+Set all `setkey` parameters to `val`
 """
 set_keys(config, _::Symbol, _) = config
 function set_keys(config::NamedTuple, setkey::Symbol, val)
@@ -83,17 +83,37 @@ function floats_to_32!(d::Dict)
 end
 
 
+"""
+Get value from nested dictionary
+"""
+function get_nested_value(d::Dict, keys)
+    cur_d = d
+    for k in keys
+        try
+            cur_d = cur_d[k]
+        catch e
+            if isa(e, KeyError)
+                @error "Failed to descend at key $k of $keys"
+            else
+                rethrow(e)
+            end
+        end
+    end
+    cur_d
+end
+
 
 """
-Walk config dictionary, replace \$var with matching root-level entry
+Walk config dictionary, replace \$var with matching entry
 """
 function replace_vars!(root, cur_node; path) end
 function replace_vars!(root, cur_node::Dict; path="", verbose::Bool=false)
     for (k, v) in cur_node
-        if isa(v, String) && v[1] == '$' && v[2:end] in keys(root)
-            cur_node[k] = root[v[2:end]]
+        if isa(v, String) && v[1] == '$'
+            topics = split(v[2:end], ".")
+            cur_node[k] = get_nested_value(root, topics)
             if verbose
-                println("replace_vars!: replacing $(path)$(k).$(v) with $(root[v[2:end]])")
+                println("replace_vars!: replacing $(path)$(k).$(v) with $(cur_node[k])")
             end
         end
         replace_vars!(root, cur_node[k], path=path * "$(k).")
