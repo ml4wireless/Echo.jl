@@ -18,7 +18,7 @@ function run_converges(configfile)
     @info "Final BERs for $configfile" train_snr_bers
     println()
     # Add extra cases for EPP with swapped bit interperpretations
-    all(train_snr_bers .< 0.02) || (train_snr_bers[3] < 0.02 && (train_snr_bers[1] > 0.98 || 0.48 < train_snr_bers[1] < 0.52))
+    all(train_snr_bers .< 0.02) || (0 < train_snr_bers[3] < 0.02 && (train_snr_bers[1] > 0.98 || 0.48 < train_snr_bers[1] < 0.52))
 end
 
 
@@ -197,9 +197,13 @@ julia $PROGRAM_FILE [-t] [-c] [-b] [-m] [-o] [-h]
         return
     end
 
+    testsets = Dict("-c" => "convergence", "-b" => "backprop", "-m" => "multiagent",
+                    "-o" => "optimisers", "-t" => "timing")
     @testset "All tests" begin
         if length(args) > 0
-            println(args)
+            print("Running ")
+            print(join([testsets[s] for s in args], ", "))
+            println(" tests")
         end
 
         if "-t" ∈ args
@@ -223,4 +227,4 @@ julia $PROGRAM_FILE [-t] [-c] [-b] [-m] [-o] [-h]
     end
 end
 
-# main(ARGS)
+main(ARGS)

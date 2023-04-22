@@ -16,7 +16,13 @@ using ..LookupTableUtils
 using ..FluxUtils
 using ..Protocols
 
+using PrettyPrinting
 
+"""
+    EchoTrainer(agents, protocol)
+
+EchoTrainer holds state necessary to simulate interactions and train Echo agents.
+"""
 struct EchoTrainer
     agents::Vector{Agent}
     # Store simulator_class instead of simulator to allow sampling of agents
@@ -41,62 +47,75 @@ end
 
 
 """
+    get_optimisers(agents, optimiser = Optimisers.Adam)
+
 Initialize optimisers for neural models.
 
-Returns (optims, optimised_models) tuple
+# Returns
 - `optims`: list of optimisers for every trained model
 - `optimised_models`: list of optimised models in matching order
 """
 function get_optimisers(agents, optimiser=Optimisers.Adam)
     optims = []
-    optim_models = []
     for a in agents
+        # Don't worry about setting lr here, it will be adjusted for mod & demod below
+        state = Optimisers.setup(optimiser(), a)
+        Optimisers.freeze!(state)
         if isneural(a.mod)
-            push!(optim_models, a.mod)
-            rule = optimiser(a.mod.lr_dict.mu)
-            state = Optimisers.setup(rule, a.mod)
-            # Separate η for log_std
-            Optimisers.adjust!(state[:log_std], a.mod.lr_dict.std)
-            push!(optims, state)
+            Optimisers.adjust(state.mod.μ, a.mod.lr_dict.mu)
+            Optimisers.thaw!(state.mod.μ)
+            Optimisers.adjust!(state.mod.log_std, a.mod.lr_dict.std)
+            Optimisers.thaw!(state.mod.log_std)
         end
         if isneural(a.demod)
-            push!(optim_models, a.demod)
-            rule = optimiser(a.demod.lr)
-            state = Optimisers.setup(rule, a.demod)
-            push!(optims, state)
+            Optimisers.adjust(state.demod.net, a.demod.lr)
+            Optimisers.thaw!(state.demod.net)
         end
+        push!(optims, state)
     end
-    (;optims=optims, optimised_models=optim_models)
+    optims
 end
 
 
 """
+    apply_model_updates!(optims, models, grads; update_log_std = true)
+
 Apply optimiser updates to models based on grads.
 
 Uses in-place version of update! which is more efficient, but mutates the
 original model, and returns a new model which is the only copy guaranteed
 to be correct.
 
-Returns:
+# Returns
 - New optimiser states `newoptims`: Array of updated optimiser state, rule trees
 - New optimised models `newmodels`: Array of updated models which must be
                                     assigned back to any higher level containers
 """
 function apply_model_updates!(optims, models, grads; update_log_std::Bool=true)
-    @show optims
-    @show models
-    @show grads
-    throw(Error("breakpoint"))
+    if grads === nothing
+        @debug "`grads` is nothing, not updating"
+        return optims, models
+    end
     newoptims, newmodels = [], []
     for (o, m, g) in zip(optims, models, grads)
-        if !update_log_std && hasfield(m, :log_std)
-            Optimisers.freeze!(o[:log_std])
+        if m.mod !== nothing && !update_log_std && hasfield(typeof(m.mod), :log_std)
+            Optimisers.freeze!(o.mod.log_std)
         end
         newo, newm = Optimisers.update!(o, m, g)
         push!(newoptims, newo)
         push!(newmodels, newm)
     end
     newoptims, newmodels
+end
+
+
+"""
+Returns a new Simulator with the agents replaced and remaining params untouched.
+
+Required to produce correct gradients with new explicit mode differentiation.
+"""
+function replace_simulator_agents(sim::S, agents) where {S <: Simulator}
+    typeof(sim)(agents[1], agents[2], sim.bits_per_symbol, sim.len_preamble, sim.cuda)
 end
 
 
@@ -130,11 +149,10 @@ Gradient Passing update logic
 """
 function update_gradient_passing!(simulator, eavesdroppers, SNR_db,
                                   optims, optim_models, verbose)
-    a1 = simulator.agent1
-    a2 = simulator.agent2
     loss = 0
     local res
     grads = Flux.gradient(optim_models) do agents
+        simulator = replace_simulator_agents(simulator, agents)
         res = simulate(simulator, SNR_db, explore=true)
         target = symbols_to_onehot(res.preamble)
         loss = loss_crossentropy(logits=res.d2_logits, target=target)
@@ -142,7 +160,8 @@ function update_gradient_passing!(simulator, eavesdroppers, SNR_db,
     if verbose
         println("loss: $(loss)")
     end
-    optims, optim_models = apply_model_updates!(optims, optim_models, grads, update_log_std=false)
+    # Pass grads[1] because we pass in agents as first arg to gradient()
+    optims, optim_models = apply_model_updates!(optims, optim_models, grads[1], update_log_std=false)
     (; optims, optim_models, loss)
 end
 
@@ -152,11 +171,10 @@ Loss Passing update logic
 """
 function update_loss_passing!(simulator, eavesdroppers, SNR_db,
                               optims, optim_models, verbose)
-    a1 = simulator.agent1
-    a2 = simulator.agent2
     m1_loss = d2_loss = 0
     local res
     grads = Flux.gradient(optim_models) do agents
+        simulator = replace_simulator_agents(simulator, agents)
         res = simulate(simulator, SNR_db, explore=true)
         target = symbols_to_onehot(res.preamble)
         if isneural(agents[2].demod)
@@ -173,7 +191,8 @@ function update_loss_passing!(simulator, eavesdroppers, SNR_db,
     if verbose
         println("m1 loss: $(m1_loss), d2 loss: $(d2_loss)")
     end
-    optims, optim_models = apply_model_updates!(optims, optim_models, grads)
+    # Pass grads[1] because we pass in agents as first arg to gradient()
+    optims, optim_models = apply_model_updates!(optims, optim_models, grads[1])
     (; optims, optim_models, m1_loss, d2_loss)
 end
 
@@ -186,6 +205,7 @@ function update_shared_preamble!(simulator, eavesdroppers, SNR_db,
     d1_loss = d2_loss = m1_loss = m2_loss = 0
     local res
     grads = Flux.gradient(optim_models) do agents
+        simulator = replace_simulator_agents(simulator, agents)
         res = simulate(simulator, SNR_db, explore=true)
         target = symbols_to_onehot(res.preamble1)
         if isneural(agents[1].demod)
@@ -210,7 +230,8 @@ function update_shared_preamble!(simulator, eavesdroppers, SNR_db,
     if verbose
         println("m1 loss: $(m1_loss), m2 loss: $(m2_loss), d1 loss: $(d1_loss), d2 loss: $(d2_loss)")
     end
-    optims, optim_models = apply_model_updates!(optims, optim_models, grads)
+    # Pass grads[1] because we pass in agents as first arg to gradient()
+    optims, optim_models = apply_model_updates!(optims, optim_models, grads[1])
     (; optims, optim_models, m1_loss, m2_loss, d1_loss, d2_loss)
 end
 
@@ -220,11 +241,10 @@ Private preamble update logic
 """
 function update_private_preamble!(simulator, eavesdroppers, SNR_db,
                                   optims, optim_models, verbose)
-    a1 = simulator.agent1
-    a2 = simulator.agent2
     d1_loss = d2_loss = m1_loss = m2_loss = 0
     local res
     grads = Flux.gradient(optim_models) do agents
+        simulator = replace_simulator_agents(simulator, agents)
         res = simulate(simulator, SNR_db, explore=true)
         target1 = symbols_to_onehot(res.preamble1)
         target2 = symbols_to_onehot(res.preamble2)
@@ -250,7 +270,8 @@ function update_private_preamble!(simulator, eavesdroppers, SNR_db,
     if verbose
         println("m1 loss: $(m1_loss), m2 loss: $(m2_loss), d1 loss: $(d1_loss), d2 loss: $(d2_loss)")
     end
-    optims, optim_models = apply_model_updates!(optims, optim_models, grads)
+    # Pass grads[1] because we pass in agents as first arg to gradient()
+    optims, optim_models = apply_model_updates!(optims, optim_models, grads[1])
     (; optims, optim_models, m1_loss, m2_loss, d1_loss, d2_loss)
 end
 
@@ -258,7 +279,17 @@ end
 _ensemble_train_bers(bers) = mean(bers, dims=3)[:, 5]
 
 """
-Run Echo training loop with trainer
+    train!(trainer, train_args)
+
+Run Echo training loop with `trainer`.
+
+Returns a `Channel` immediately and runs as a separate task, pushing intermediate
+results into the channel as they are produced. This allows checkpoint saving logic
+to be handled outside the function.
+
+# Parameters
+- Trainer (`trainer`): EchoTrainer holding training state.
+- Training args (`train_args`): NamedTuple of `train_kwargs` from YAML experiment config.
 """
 function train!(trainer::EchoTrainer, train_args)
     Channel() do channel
@@ -269,9 +300,9 @@ function train!(trainer::EchoTrainer, train_args)
         else
             SNR_db = get_optimal_SNR_for_BER(train_args.target_ber, bps)
         end
-        println("Training at $(SNR_db) dB SNR")
+        @info "Training at $(SNR_db) dB SNR"
         # Per-model and separate mu & log_std optimizers for individual learning rates
-        optims, optim_models = get_optimisers(trainer.agents, get_optimiser_type(train_args.optimiser))
+        optims = get_optimisers(trainer.agents, get_optimiser_type(train_args.optimiser))
         # Setup progress logging
         is_logging(io) = isa(io, Base.TTY) == false || (get(ENV, "CI", nothing) == "true")
         p = Progress(train_args.num_iterations_train, dt=0.25, output=stderr, enabled=!is_logging(stderr))

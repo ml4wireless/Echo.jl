@@ -31,7 +31,16 @@ agent_type_map = Dict(
     "nonedemod" => nothing,
 )
 
+"""
+    ExperimentConfig(config, results_dir = "./results"; cuda = false)
 
+ExperimentConfig manages configuration for Echo experiments.
+
+# Parameters
+- Run configuration (`config`): NamedTuple loaded from a YAML experiment definition file with `loadconfig`.
+- Output directory (`results_dir`): Top level directory to save run results in, further organized by `experiment_type`.
+- Use GPU (`cuda`): Whether to run experiment on GPU.
+"""
 struct ExperimentConfig
     config::NamedTuple
     results_dir::String
@@ -45,7 +54,14 @@ Base.show(io::IO, cfg::ExperimentConfig) = print(io, "ExperimentConfig($(cfg.con
 
 
 """
+    run_experiment(expmt; save_results = true, rorerun = false)
+
 Run training for shared preamble experiment
+
+# Parameters
+- Experiment config (`expmt`): ExperimentConfig defining run parameters.
+- Save results (`save_results`): Whether to save results to disk as well as return from this function.
+- No rerun (`norerun`): If true, skip running this experiment if a results file already exists.
 """
 function run_experiment(expmt::ExperimentConfig; save_results::Bool=true, norerun::Bool=false)
     println("Running experiment $(expmt.config.experiment_type)->$(expmt.config.experiment_id)")
@@ -195,8 +211,8 @@ function get_opp_demod(expmt::ExperimentConfig)
     demod
 end
 
-function reconstruct_agents(config, results, iter)
-    kwargs = results[0][:kwargs]
+function reconstruct_agents(results, iter=0)
+    kwargs = results[iter][:kwargs]
     agents = Agent[]
     for agent in values(kwargs)
         push!(Agent(mod=agent.mod, demod=agent.demod))

@@ -159,7 +159,8 @@ function simulate_round_trip(a1, a2, bits_per_symbol, len_preamble, SNR_db, expl
 end
 
 
-simulate(sim::Simulator, SNR_db::Real; explore::Bool=false, swapagents::Bool=false) = simulate(sim, Float32(SNR_db); explore, swapagents)
+_isrt(sim::Simulator) = isa(sim, SharedPreambleSimulator) || isa(sim, PrivatePreambleSimulator)
+simulate(sim::Simulator, SNR_db::Real; explore::Bool=false, swapagents::Bool=false) = _isrt(sim) ? simulate(sim, Float32(SNR_db); explore) : simulate(sim, Float32(SNR_db); explore, swapagents)
 
 function simulate(sim::GradientPassingSimulator, SNR_db::Float32; explore::Bool=false, swapagents::Bool=false)
     A = swapagents ? sim.agent2 : sim.agent1

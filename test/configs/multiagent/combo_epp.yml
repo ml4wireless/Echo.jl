@@ -83,8 +83,8 @@ train_kwargs:
   target_ber: 0.01
   len_preamble: 64
   len_preamble_eval: 10000
-  stats_every_train: 10
-  num_iterations_train: 2000
-  checkpoint_every_train: 100
+  stats_every_train: 50
+  num_iterations_train: 1500
+  checkpoint_every_train: 500
   optimiser: adam
   verbose: false

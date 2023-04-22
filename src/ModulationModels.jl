@@ -12,6 +12,7 @@ using ChainRules: @ignore_derivatives, ignore_derivatives
 using Clustering: kmeans, assignments
 using Combinatorics: permutations
 using CUDA: CuArray, Mem.DeviceBuffer as DeviceBuffer, randn as curandn
+using Crayons
 using Distributions
 using Flux
 using Flux: unsqueeze
@@ -44,6 +45,17 @@ rotation_matrix(r) = hcat([cos(r); -sin(r)], [sin(r); cos(r)])
 
 plain_print_list(l) = "[" * join(l, ",") * "]"
 
+function color_type(t, main_color::Symbol = :blue)
+    typestr = string(typeof(t))
+    tmain, tparam = match(r"(\w+)(\{.+\})*", typestr).captures
+    if tparam === nothing
+        tparam = ""
+    end
+    (Crayon(foreground=main_color, bold=true), tmain,
+     Crayon(foreground=:light_gray, bold=false, italics=true), tparam,
+     Crayon(reset=true))
+end
+
 ##################################################################################
 # Abstract Types
 ##################################################################################
@@ -66,17 +78,19 @@ end
 # Only the rotation field of a ClassicMod struct is trainable
 # but symbol map should also be sent to the desired device
 Flux.@functor ClassicMod (rotation, symbol_map)
-Flux.trainable(m::ClassicMod) = m.trainable ? (; rotation=m.rotation,) : ()
+Flux.trainable(m::ClassicMod) = m.trainable ? (; rotation=m.rotation,) : (;)
 
-Base.show(io::IO, m::ClassicMod) = @printf(io, "%s(bps=%d, rot=%.1f)",
-    typeof(m), m.bits_per_symbol, 180/pi*m.rotation[1])
+function Base.show(io::IO, m::ClassicMod)
+    argstr = @sprintf("(bps=%d, rot=%.1f)", m.bits_per_symbol, 180/pi*m.rotation[1])
+    print(io, color_type(m)..., argstr)
+end
 
 function ClassicMod(;bits_per_symbol::Integer, rotation_deg::Real=0., avg_power::Real=1., trainable::Bool=false)
     symbol_map = get_symbol_map(bits_per_symbol)
     # symbol_map = rotation_matrix(rotation) * symbol_map
     curr_avg_power = mean(sum(abs2.(symbol_map), dims=1))
-    normalization_factor = sqrt((relu(curr_avg_power - avg_power) + avg_power) / avg_power)
-    return ClassicMod(bits_per_symbol, Float32[convert(Float32, pi / 180 * rotation_deg)], avg_power,
+    normalization_factor = Float32(sqrt((relu(curr_avg_power - avg_power) + avg_power) / avg_power))
+    return ClassicMod(bits_per_symbol, Float32[Float32( pi / 180 * rotation_deg)], Float32(avg_power),
                       symbol_map .* normalization_factor, trainable)
 end
 
@@ -148,17 +162,19 @@ end
 # Only the rotation field of a ClassicDemod struct is trainable
 # but symbol map should also be sent to the desired device
 Flux.@functor ClassicDemod (rotation, symbol_map)
-Flux.trainable(d::ClassicDemod) = d.trainable ? (; rotation=d.rotation,) : ()
+Flux.trainable(d::ClassicDemod) = d.trainable ? (; rotation=d.rotation,) : (;)
 
-Base.show(io::IO, d::ClassicDemod) = @printf(io, "%s(bps=%d, rot=%.1f)",
-    typeof(d), d.bits_per_symbol, 180/pi*d.rotation[1])
+function Base.show(io::IO, d::ClassicDemod)
+    argstr = @sprintf("(bps=%d, rot=%.1f)", d.bits_per_symbol, 180/pi*d.rotation[1])
+    print(io, color_type(d)..., argstr)
+end
 
 function ClassicDemod(;bits_per_symbol::Integer, rotation_deg::Real=0f0, avg_power::Real=1., trainable::Bool=false)
     symbol_map = get_symbol_map(bits_per_symbol)
     # symbol_map = rotation_matrix(rotation) * symbol_map
     curr_avg_power = mean(sum(abs2.(symbol_map), dims=1))
-    normalization_factor = sqrt((relu(curr_avg_power - avg_power) + avg_power) / avg_power)
-    return ClassicDemod(bits_per_symbol, [convert(Float32, pi / 180 * rotation_deg)], avg_power,
+    normalization_factor = Float32(sqrt((relu(curr_avg_power - avg_power) + avg_power) / avg_power))
+    return ClassicDemod(bits_per_symbol, [Float32(pi / 180 * rotation_deg)], Float32(avg_power),
                         symbol_map .* normalization_factor, trainable)
 end
 
@@ -215,7 +231,7 @@ struct ClusteringDemod <: Demodulator
     centers::Matrix{Float32}
 end
 
-Base.show(io::IO, d::ClusteringDemod) = @printf(io, "%s(bps=%d)", typeof(d), d.bits_per_symbol)
+Base.show(io::IO, d::ClusteringDemod) = print(io, color_type(d)..., "(bps=$(d.bits_per_symbol))")
 
 
 function ClusteringDemod(;bits_per_symbol::Integer, centers::Union{Nothing, Matrix{Float32}}=nothing)
@@ -299,7 +315,7 @@ mutable struct NeuralModPolicy{M <: AbstractMatrix{Float32}, V <: AbstractVector
     stds::V
 end
 
-Flux.@functor NeuralModPolicy (means, stds)
+# Flux.@functor NeuralModPolicy (means, stds)
 NeuralModPolicy() = NeuralModPolicy(M32(undef, 0, 0), V32(undef, 0))
 Random.rand(rng::AbstractRNG, policy::NeuralModPolicy{M32, V32}) = randn(rng, Float32, size(policy)) .* policy.stds .+ policy.means
 Random.rand(policy::NeuralModPolicy{CM32, CV32}) = curandn(Float32, size(policy)) .* policy.stds .+ policy.means
@@ -332,10 +348,13 @@ end
 Flux.@functor NeuralMod (μ, log_std, policy, all_unique_symbols)
 Flux.trainable(m::NeuralMod) = (; μ=m.μ, log_std=m.log_std)
 
-Base.show(io::IO, m::NeuralMod) = @printf(io, "%s(bps=%d, hl=%s, actv_fn=%s, re=%d, λμ=%g, λσ=%g)",
-    typeof(m), m.bits_per_symbol, plain_print_list(m.hidden_layers),
-    String(Symbol(m.activation_fn_hidden)), m.restrict_energy,
-    m.lr_dict.mu, m.lr_dict.std)
+function Base.show(io::IO, m::NeuralMod)
+    argstr = @sprintf("(bps=%d, hl=%s, 𝑓=%s, re=%d, λμ=%g, λσ=%g)",
+                      m.bits_per_symbol, plain_print_list(m.hidden_layers),
+                      string(Symbol(m.activation_fn_hidden)), m.restrict_energy,
+                      m.lr_dict.mu, m.lr_dict.std)
+    print(io, color_type(m)..., argstr)
+end
 
 function NeuralMod(;bits_per_symbol,
                    hidden_layers,
@@ -533,9 +552,12 @@ end
 # Only the net field of a NeuralDemod struct is trainable
 Flux.@functor NeuralDemod (net,)
 
-Base.show(io::IO, d::NeuralDemod) = @printf(io, "%s(bps=%d, hl=%s, actv_fn=%s, λ=%g)",
-    typeof(d), d.bits_per_symbol, plain_print_list(d.hidden_layers),
-    String(Symbol(d.activation_fn_hidden)), d.lr)
+function Base.show(io::IO, d::NeuralDemod)
+    argstr = @sprintf("(bps=%d, hl=%s, 𝑓=%s, λ=%g)",
+                      d.bits_per_symbol, plain_print_list(d.hidden_layers),
+                      String(Symbol(d.activation_fn_hidden)), d.lr)
+    print(io, color_type(d)..., argstr)
+end
 
 function NeuralDemod(;bits_per_symbol::Integer, hidden_layers::Vector{Int},
                      activation_fn_hidden::Union{Function,String}=elu,
@@ -660,6 +682,7 @@ iscuda(m::ClassicMod) = isa(m.rotation, CuArray)
 iscuda(m::NeuralMod) = isa(m.log_std, CuArray)
 iscuda(d::ClassicDemod) = isa(d.rotation, CuArray)
 iscuda(d::NeuralDemod) = isa(d.net[1].weight, CuArray)
-iscuda(::ClusteringDemod) = throw(Error("Unable to determine whether clustering demod is used on gpu or not"))
+iscuda(::ClusteringDemod) = false
+iscuda(::Nothing) = false
 
 end

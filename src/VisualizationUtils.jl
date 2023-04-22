@@ -52,14 +52,14 @@ end
 # DEMOD GRID
 ###############################
 function get_demod_grid(demod, lims=[-1.5, 1.5], density=100)
-    row = collect(range(lims[1], lims[2], length=density))
+    row = Float32.(collect(range(lims[1], lims[2], length=density)))
     grid = permutedims(hcat(repeat(row, inner=density), repeat(row, outer=density)))
     symbs_si = demodulate(demod, grid)
     grid, symbs_si
 end
 
 function get_demod_grid_probs(demod, lims=[-1.5, 1.5], density=100)
-    row = collect(range(lims[1], lims[2], length=density))
+    row = Float32.(collect(range(lims[1], lims[2], length=density)))
     grid = permutedims(hcat(repeat(row, inner=density), repeat(row, outer=density)))
     logits = demodulate(demod, grid, soft=true)
     symbs_si = argmax.(eachcol(logits)) .- 1

@@ -9,7 +9,7 @@ neural_mod_kwargs:
   hidden_layers: [30]
   restrict_energy: 1
   log_std_dict:
-    initial: -0.6
+    initial: -0.3
     max: 1.0
     min: -3.0
   lr_dict:
@@ -22,7 +22,7 @@ neural_demod_kwargs:
   bits_per_symbol: "$bps"
   activation_fn_hidden: elu
   hidden_layers: [20]
-  lr: 1e-2
+  lr: 1e-3
 
 neural_demod_2_kwargs: "$neural_demod_kwargs"
 
@@ -60,8 +60,8 @@ train_kwargs:
   target_ber: 0.01
   len_preamble: 64
   len_preamble_eval: 10000
-  stats_every_train: 10
-  num_iterations_train: 500
-  checkpoint_every_train: 100
+  stats_every_train: 20
+  num_iterations_train: 1000
+  checkpoint_every_train: 200
   optimiser: adam
   verbose: false

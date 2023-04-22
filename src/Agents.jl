@@ -7,10 +7,14 @@ using ..ModulationModels
 import .ModulationModels.get_kwargs
 import .ModulationModels.iscuda
 
+using Crayons
 using Random
 import Random.rand
+using Flux
 using Flux: @functor
 import Flux.trainable
+import Base.show
+
 
 MaybeCMod = Union{ClassicMod, Nothing}
 MaybeNMod = Union{NeuralMod, Nothing}
@@ -224,8 +228,10 @@ function Flux.trainable(a::Agent)
     end
 end
 
+Base.show(io::IO, a::Agent) = print(io, Crayon(bold=true, foreground=:green), typeof(a),
+                                    Crayon(reset=true), "(", a.mod, ", ", a.demod, ")")
 
-iscuda(a::Agent) = iscuda(a.mod)
+iscuda(a::Agent) = iscuda(a.mod) || iscuda(a.demod)
 
 
 end

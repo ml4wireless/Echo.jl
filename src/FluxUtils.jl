@@ -50,6 +50,8 @@ function get_optimiser_type(name)
         return Yogi
     elseif lowercase(name) == "madgrad"
         return MADGrad
+    elseif lowercase(name) == "ldog"
+        return LDoG
     else
         throw(ValueError("Unknown optimiser $(name)"))
     end

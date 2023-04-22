@@ -13,7 +13,7 @@ neural_mod_kwargs:
     max: 1.0
     min: -3.0
   lr_dict:
-    mu: 5e-3
+    mu: 5e-2
     std: 1e-3
 
 neural_mod_2_kwargs:
@@ -83,8 +83,8 @@ train_kwargs:
   target_ber: 0.01
   len_preamble: 64
   len_preamble_eval: 10000
-  stats_every_train: 3
-  num_iterations_train: 500
-  checkpoint_every_train: 100
+  stats_every_train: 50
+  num_iterations_train: 2000
+  checkpoint_every_train: 400
   optimiser: adam
   verbose: false

@@ -9,12 +9,12 @@ neural_mod_kwargs:
   hidden_layers: [40,40]
   restrict_energy: 1
   log_std_dict:
-    initial: -1.4
+    initial: -1.5
     max: 1.0
     min: -3.0
   lr_dict:
-    mu: 5e-4
-    std: 1e-3
+    mu: 8e-4
+    std: 3e-3
 
 neural_mod_2_kwargs: "$neural_mod_kwargs"
 
@@ -64,6 +64,6 @@ train_kwargs:
   plot_initial_eval: false
   stats_every_train: 50
   num_iterations_train: 3000
-  checkpoint_every_train: 300
+  checkpoint_every_train: 500
   optimiser: adam
   verbose: false
