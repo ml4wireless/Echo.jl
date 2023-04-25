@@ -1,5 +1,5 @@
 module ExtraOptimisers
-export Yogi, MADGrad, LDoG
+export Yogi, MADGrad, LDoG, Lion
 import Optimisers
 
 using LinearAlgebra: norm
@@ -51,6 +51,8 @@ end
 
 [MADGRAD](https://arxiv.org/abs/2101.11075) optimiser
 
+This optimiser maintains state equal to 3x the size of optimised params `x`.
+
 # Parameters
 - Learning rate (`η`): Amount by which gradients are discounted before updating
                        the weights.
@@ -69,7 +71,7 @@ struct MADGrad{T} <: Optimisers.AbstractRule
     epsilon::T
     decouple_decay::Bool
 end
-MADGrad(η = 1f-3, momentum = 9f-1, decay = 0f0, ϵ = 1f-6, decouple_decay = false) = MADGrad{typeof(η)}(η, momentum, decay, ϵ, decouple_decay)
+MADGrad(η = 1f-3, momentum = 9f-1, decay = 0f0, ϵ = 1f-6, decouple_decay = true) = MADGrad{typeof(η)}(η, momentum, decay, ϵ, decouple_decay)
 
 Optimisers.init(::MADGrad, x::AbstractArray) = (deepcopy(x), zero(x), zero(x), 0)
 
@@ -85,7 +87,7 @@ function Optimisers.apply!(o::MADGrad, state, x, dx)
     λk = η * sqrt(k + 1)
 
     # Apply weight decay
-    if decay != 0.0 && !decouple_decay
+    if decay != 0 && !decouple_decay
         Optimisers.@.. dx = dx + decay * x
     end
 
@@ -96,8 +98,8 @@ function Optimisers.apply!(o::MADGrad, state, x, dx)
     x′ = Optimisers.@lazy (1 - ck) * x + ck * zk
 
     # Apply decoupled weight decay
-    penalty = 0f0
-    if decay != 0.0 && decouple_decay
+    penalty = zero(eltype(x))
+    if decay != 0 && decouple_decay
          penalty = Optimisers.@lazy η * decay * x
     end
 
@@ -150,13 +152,57 @@ function Optimisers.apply!(o::LDoG, state, x, dx)
         η = c * rbar / sqrt(Gsqr)
     end
 
-    penalty = 0f0
-    if weight_decay > 0f0
+    penalty = zero(eltype(x))
+    if weight_decay > 0
         penalty = @. weight_decay * x
     end
     dx′ = Optimisers.@lazy η * (dx + penalty)
 
     return (x0, rbar, Gsqr, t + 1),  dx′
 end
+
+
+"""
+    Lion(eta = 1f-4, beta = (9f-1, 9.9f-1), weight_decay = 0f0)
+
+[Lion](https://arxiv.org/abs/2302.06675) optimiser
+
+# Parameters
+- Learning rate (`eta`): Amount by which gradients are discounted before updating
+                         the weights.
+- Beta (`beta`): Tuple of (beta1, beta2), representing gradient discounting for
+                 adjusted gradient `sign(c_t)` and momentum `m_t` updates.
+- Weight decay (`weight_decay`):  L2 penalty, eta * weight_decay * x_t is added
+                                  directly to the gradient. Adjusting eta requires
+                                  adjusting this value inversely.
+"""
+struct Lion{T} <: Optimisers.AbstractRule
+    eta::T
+    beta::Tuple{T, T}
+    weight_decay::T
+end
+Lion(η = 1f-4, β = (9f-1, 9.9f-1), weight_decay = 0f0) = Lion{typeof(η)}(η, β, weight_decay)
+
+Optimisers.init(::Lion, x::AbstractArray) = (zero(x),)
+
+function Optimisers.apply!(o::Lion, state, x, dx)
+    η, β, λ = o.eta, o.beta, o.weight_decay
+    (mt,) = state
+
+    # Weight decay penalty
+    penalty = zero(eltype(x))
+    if λ > 0
+        penalty = @. λ * x
+    end
+
+    # Sign(c_t) grad update
+    dx′ = Optimisers.@lazy η * (sign(β[1] * mt + (1 - β[1]) * dx) + penalty)
+
+    # Momentum update
+    Optimisers.@.. mt = β[2] * mt + (1 - β[2]) * dx
+
+    return (mt,), dx′
+end
+
 
 end
