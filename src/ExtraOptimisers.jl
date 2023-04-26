@@ -1,5 +1,5 @@
 module ExtraOptimisers
-export Yogi, MADGrad, LDoG, Lion
+export Yogi, MADGrad, LDoG
 import Optimisers
 
 using LinearAlgebra: norm
@@ -165,7 +165,7 @@ end
 """
     Lion(eta = 1f-4, beta = (9f-1, 9.9f-1), weight_decay = 0f0)
 
-[Lion](https://arxiv.org/abs/2302.06675) optimiser
+[Lion](https://arxiv.org/abs/2302.06675) optimiser -- already implemented in Optimisers.jl
 
 # Parameters
 - Learning rate (`eta`): Amount by which gradients are discounted before updating

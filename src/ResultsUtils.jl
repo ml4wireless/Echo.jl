@@ -37,6 +37,8 @@ end
 
 
 """
+    trainbers(results; roundtrip = true, column = 5)
+
 Return {ht,rt} BERs at a given test SNR through training epochs
 If not `roundtrip``, return the first halftrip BER measurement.
 `column` corresponds to the test SNR, with 5 usually representing target BER 0.01.
@@ -51,6 +53,8 @@ function trainbers(results::Dict{Int64, Any}; roundtrip::Bool=true, column::Int=
     end
     bers
 end
+
+trainbers(results::NamedTuple; roundtrip::Bool=true, column::Int=5) = trainbers(results.results; roundtrip, column)
 
 
 """
