@@ -1,5 +1,6 @@
 module ResultsUtils
-export loadresults, finalbers, trainbers, finalagents, reconstruct_epoch, find_3db_off, find_dboff
+export loadresults, finalbers, trainbers, finalagents, reconstruct_epoch,
+       find_3db_off, find_dboff, elapsedtime
 
 using BSON
 # Bring Flux and Zygote into module namespace for BSON loading
@@ -126,6 +127,19 @@ end
 Find first 3dB-off BER result and return number of training iterations to reach it
 """
 find_3db_off(config, results) = find_dboff(config, results, 3.)
+
+
+"""
+Report total time elapsed during training and time-per-iteration
+"""
+function elapsedtime(results::Dict)
+    maxepoch = maximum(collect(keys(results)))
+    T = results[maxepoch][:t_elapsed]
+    dt = T / maxepoch
+    T, dt
+end
+
+elapsedtime(results::NamedTuple) = elapsedtime(results.results)
 
 
 end
