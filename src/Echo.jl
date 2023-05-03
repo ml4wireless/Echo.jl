@@ -37,10 +37,12 @@ using Reexport: @reexport
     using .VisualizationUtils
 end
 
-precompile(run_experiment, (ExperimentConfig,))
-precompile(EchoTrainers.train!, (EchoTrainer, NamedTuple))
 precompile(simulate_half_trip, (NeuralAgent, NeuralAgent, Int, Int, Float32, Bool))
 precompile(simulate_half_trip, (NeuralAgent, ClassicAgent, Int, Int, Float32, Bool))
 precompile(simulate_round_trip, (NeuralAgent, NeuralAgent, Int, Int, Float32, Bool, Bool, Bool))
 precompile(simulate_round_trip, (NeuralAgent, ClassicAgent, Int, Int, Float32, Bool, Bool, Bool))
+precompile(EchoTrainers.train!, (EchoTrainer, NamedTuple))
+precompile(run_experiment, (ExperimentConfig,))
+
+
 end

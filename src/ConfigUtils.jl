@@ -1,10 +1,11 @@
 module ConfigUtils
-export loadconfig, writeconfig, match_opponent, set_activations, set_keys
+export loadconfig, writeconfig, match_opponent, set_activations, set_keys, setbps, configsummary
 
-using SymDict
 using Accessors
+using Crayons
 using YAML
-using JSON3
+using SymDict
+using YAML
 
 using ..Protocols
 
@@ -35,7 +36,11 @@ end
 
 
 """
-Set all `setkey` parameters to `val`
+    set_keys(config::NamedTuple, setkey::Symbol, val)
+
+Set all `setkey` leaf parameters to `val`.
+
+Returns a copy of `config` with adjusted values.
 """
 set_keys(config, _::Symbol, _) = config
 function set_keys(config::NamedTuple, setkey::Symbol, val)
@@ -52,7 +57,11 @@ end
 set_keys(config::NamedTuple, setkey::AbstractString, val) = set_keys(config, Symbol(setkey), val)
 
 
-"""Set hidden layer activation functions"""
+"""
+    set_activations(config, fn)
+
+Set all hidden layer activation functions to `fn`.
+"""
 set_activations(config, fn) = set_keys(config, :activation_fn_hidden, fn)
 
 
@@ -84,7 +93,9 @@ end
 
 
 """
-Get value from nested dictionary
+    get_nested_value(d::Dict, keys)
+
+Get value specified by a list of `keys` from nested dictionary `d`.
 """
 function get_nested_value(d::Dict, keys)
     cur_d = d
@@ -104,6 +115,8 @@ end
 
 
 """
+    replace_vars!(root; verbose = false)
+
 Walk config dictionary, replace \$var with matching entry
 """
 function replace_vars!(root, cur_node; path) end
@@ -123,7 +136,9 @@ replace_vars!(root::Dict; verbose::Bool=false) = replace_vars!(root, root, verbo
 
 
 """
-Load configuration file; expand \$var variables from top level, convert to NamedTuple
+    loadconfig(filename; verbose = false)
+
+Load configuration file; expand \$var variables from top level, convert to NamedTuple.
 """
 function loadconfig(filename; verbose::Bool=false)
     if splitext(filename)[2] ∈ [".yml", ".yaml"]
@@ -155,13 +170,60 @@ end
 
 
 """
-Write configuration to file
+    writeconfig(config, filename)
+
+Write configuration `config` to file `filename`.
 """
 function writeconfig(config::Dict, filename)
     config["train_kwargs"]["protocol"] = string(config["train_kwargs"]["protocol"])
     YAML.write_file(filename, config)
 end
 writeconfig(config::NamedTuple, filename) = writeconfig(nt_to_dict(config), filename)
+
+
+"""
+    setbps(cfg, bps)
+
+Set all `bits_per_symbol` parameters in `cfg` to `bps`.
+
+Returns an adjusted copy of `cfg`.
+"""
+function setbps(cfg::NamedTuple, bps::Integer)
+    cfg = set_keys(cfg, :bps, bps)
+    cfg = set_keys(cfg, :bits_per_symbol, bps)
+    cfg
+end
+
+
+function _config_info(cfg)
+    title = "$(cfg.experiment_type) → $(cfg.experiment_id), $(cfg.train_kwargs.protocol)"
+    basic_train = "BPS=$(cfg.bps), OPT=$(cfg.train_kwargs.optimiser), ITERS=$(cfg.train_kwargs.num_iterations_train)"
+    agents = join(["($(ag.mod) + $(ag.demod))" for ag in cfg.agent_types], ", ")
+    agent_detail = (
+        "HL_mod=$(cfg.neural_mod_kwargs.hidden_layers), HL_demod=$(cfg.neural_demod_kwargs.hidden_layers), " *
+        "η_mod=$(cfg.neural_mod_kwargs.lr_dict.mu), η_demod=$(cfg.neural_demod_kwargs.lr), " *
+        "logσ=$(cfg.neural_mod_kwargs.log_std_dict.initial)"
+    )
+    title, basic_train, agents, agent_detail
+end
+
+"""
+    configsummary(cfg::NamedTuple)
+
+Print formatted summary of config parameters.
+"""
+function configsummary(io::IO, cfg::NamedTuple)
+    title, basic_train, agents, agent_detail = _config_info(cfg)
+    print(io,
+        Crayon(bold=true), title * "\n", Crayon(bold=false, foreground=:blue),
+        basic_train * "\n", Crayon(foreground=:green), agents * "\n", Crayon(foreground=:light_gray),
+        agent_detail * "\n", Crayon(reset=true)
+    )
+end
+
+function configsummary(cfg::NamedTuple)
+    configsummary(stdout, cfg)
+end
 
 
 end

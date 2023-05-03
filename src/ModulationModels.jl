@@ -342,6 +342,7 @@ struct NeuralMod{A <: AbstractVector{Float32}, U <: AbstractMatrix{UInt16}} <: M
     lr_dict::NamedTuple  # mu, std
     all_unique_symbols::U
     lambda_prob::Float32  # For numerical stability while computing pg loss
+    λdiversity::Float32  # Weighting for diversity loss
 end
 
 # Only the μ and log_std fields of a NeuralMod struct are trainable
@@ -349,10 +350,10 @@ Flux.@functor NeuralMod (μ, log_std, policy, all_unique_symbols)
 Flux.trainable(m::NeuralMod) = (; μ=m.μ, log_std=m.log_std)
 
 function Base.show(io::IO, m::NeuralMod)
-    argstr = @sprintf("(bps=%d, hl=%s, 𝑓=%s, re=%d, λμ=%g, λσ=%g)",
+    argstr = @sprintf("(bps=%d, hl=%s, 𝑓=%s, re=%d, λμ=%g, λσ=%g, λdiv=%g)",
                       m.bits_per_symbol, plain_print_list(m.hidden_layers),
                       string(Symbol(m.activation_fn_hidden)), m.restrict_energy,
-                      m.lr_dict.mu, m.lr_dict.std)
+                      m.lr_dict.mu, m.lr_dict.std, m.λdiversity)
     print(io, color_type(m)..., argstr)
 end
 
@@ -363,6 +364,7 @@ function NeuralMod(;bits_per_symbol,
                    log_std_dict=(; initial=-1f0, max=1f0, min=-3f0),
                    lr_dict=(; mu=5f-1, std=1f-3),
                    lambda_prob=1f-6,
+                   lambda_diversity=0f0,
                    log_std=nothing, weights=nothing)
     if isa(activation_fn_hidden, String)
         activation_fn_hidden = getfield(Flux, Symbol(activation_fn_hidden))
@@ -392,6 +394,7 @@ function NeuralMod(;bits_per_symbol,
               μ, log_std, NeuralModPolicy(),
               log_std_dict, lr_dict,
               all_unique_symbols, lambda_prob,
+              Float32(lambda_diversity),
               )
 end
 
@@ -405,6 +408,7 @@ get_kwargs(m::NeuralMod; include_weights=false) = (;
     :log_std_dict => m.log_std_dict,
     :lr_dict => m.lr_dict,
     :lambda_prob => m.lambda_prob,
+    :lambda_diversity => m.λdiversity,
     :log_std => include_weights ? deepcopy(cpu(m.log_std)) : nothing,
     # TODO: change to new recommended method: deepcopy(m.μ), loadmodel!(m.μ, prevμ)
     :weights => include_weights ? deepcopy(cpu(m.μ)) : nothing,
@@ -533,6 +537,10 @@ function loss(mod::NeuralMod; symbols, received_symbols, actions)
         -sum.(eachcol(Float32.(xor.(symbols, received_symbols))))
     end
     loss = loss_vanilla_pg(mod=mod, reward=reward, actions=actions)
+    if mod.λdiversity > 0
+        loss += mod.λdiversity * loss_diversity(modulate(mod, mod.all_unique_symbols, explore=false))
+    end
+    loss
 end
 
 

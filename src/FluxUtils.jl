@@ -1,6 +1,7 @@
 # Julia ML utils
 
 module FluxUtils
+using ChainRules: ignore_derivatives
 using CUDA: CuArray
 using Flux
 using Zygote
@@ -15,7 +16,7 @@ using ..ExtraOptimisers
 
 export multi_agent_params, get_optimiser_type
 export Memory, memorize!
-export loss_vanilla_pg, loss_crossentropy
+export loss_vanilla_pg, loss_crossentropy, loss_diversity
 export symbols_to_onehot, logits_to_symbols_si, logits_to_symbols_sb, normlogpdf
 
 
@@ -173,6 +174,8 @@ end
 
 
 """
+    loss_vanilla_pg(;mod, rewards, actions)
+
 REINFORCE policy gradient loss for modulator
 """
 function loss_vanilla_pg(;mod, reward, actions)
@@ -184,6 +187,8 @@ end
 
 
 """
+    loss_crossentropy(;logits, target)
+
 Cross-Entropy loss for demodulator
 """
 function loss_crossentropy(;logits, target)
@@ -191,7 +196,39 @@ function loss_crossentropy(;logits, target)
 end
 
 
+function _myargsort(x::AbstractMatrix)::AbstractMatrix{CartesianIndex{2}}
+    p = sortperm.(eachcol(x))
+    reduce(hcat, [CartesianIndex.(c, j) for (j, c) in enumerate(p)])
+end
 """
+    loss_diversity(constellation)
+
+Return the diversity loss, mean ratio of distance to nearest neighbor and distance to
+second nearest neighbor for each constellation point.
+
+# Parameters
+- Constellation (`constellation`): 2xN matrix of IQ constellation points
+"""
+function loss_diversity(constellation)
+    # Get distance of each constellation point from every other
+    cT = transpose(constellation)
+    diff = reshape(cT, (:, 2, 1)) .- reshape(constellation, (1, 2, :))
+    dists = (@. diff[:, 1, :] ^ 2 + diff[:, 2, :] ^ 2) |> cpu
+    # For small matrices, sorting on CPU is faster
+    local sdists
+    ignore_derivatives() do
+        # We want to ignore self-distance for sorting
+        dists[dists .== 0] .= Inf32
+        sdists = _myargsort(dists)
+    end
+    # Ratio of 2nd nearest neighbor to nearest should approach 1 for evenly spaced points
+    mean(dists[sdists[2, :]] ./ dists[sdists[1, :]])
+end
+
+
+"""
+    symbols_to_onehot(data_sb)
+
 Converts array of bit representation of symbols to one-hot array
 Inputs:
 data_sb: array of type integer containing 0-1 entries of shape [bits_per_symbol, m]
@@ -214,9 +251,9 @@ function symbols_to_onehot(data_sb::CuArray)
 end
 
 
-
-
 """
+    logits_to_symbols_si(logits)
+
 Convert logits to 0-indexed integers for symbol values
 """
 function logits_to_symbols_si(logits)
@@ -226,6 +263,8 @@ end
 
 
 """
+    logits_to_symbols_sb(logits, bits_per_symbol)
+
 Convert logits to array of symbol bits
 """
 function logits_to_symbols_sb(logits, bits_per_symbol)
@@ -234,6 +273,8 @@ end
 
 
 """
+    normlogpdf(μ, σ, x; ϵ = 1.0f-8)
+
 GPU automatic differentiable version for the logpdf function of normal distributions.
 Adding an epsilon value to guarantee numeric stability if sigma is exactly zero
 (e.g. if relu is used in output layer).
