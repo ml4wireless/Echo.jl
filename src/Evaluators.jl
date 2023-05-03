@@ -95,13 +95,13 @@ end
 
 function simulate_inner_loop(sim::SharedPreambleSimulator, num_iterations, len_preamble, SNR_db, stats_every::Integer=10)
     ber_array = Array{Float32, 2}(undef, (4, Int(num_iterations / stats_every) + 1))
-    bers = compute_ber_htrt(sim, sim.len_preamble_test, SNR_db)
+    bers = compute_ber_htrt(sim, SNR_db)
     ber_array[:, 1] = Float32[0, bers...]
 
     for i in 1:num_iterations
         update_shared_preamble_sgd!(sim.agent1, sim.agent2, len_preamble, SNR_db)
         if i % stats_every == 0 || i == num_iterations
-            bers = compute_ber_htrt(sim, len_preamble, SNR_db)
+            bers = compute_ber_htrt(sim, SNR_db)
             ber_array[:, i + 1] = Float32[i, bers...]
         end
     end

@@ -6,6 +6,7 @@ export get_mod, get_demod, get_opp_mod, get_opp_demod, reconstruct_agents
 
 using Accessors
 using BSON
+using Crayons
 using CUDA: @allowscalar
 using Flux: gpu
 using Random
@@ -44,13 +45,20 @@ ExperimentConfig manages configuration for Echo experiments.
 struct ExperimentConfig
     config::NamedTuple
     results_dir::String
+    logging_dir::String
     bps::Int
     cuda::Bool
 end
 
-ExperimentConfig(config::NamedTuple, results_dir::String="./results"; cuda::Bool=false) = ExperimentConfig(config, results_dir, config.train_kwargs.bits_per_symbol, cuda)
+ExperimentConfig(config::NamedTuple, results_dir::String="./results";
+                 cuda::Bool=false, logging_dir::String="./tensorboard_logs") = (
+    ExperimentConfig(config, results_dir, logging_dir, config.train_kwargs.bits_per_symbol, cuda)
+)
 
-Base.show(io::IO, cfg::ExperimentConfig) = print(io, "ExperimentConfig($(cfg.config.experiment_type), $(cfg.config.experiment_id), $(cfg.results_dir))")
+Base.show(io::IO, cfg::ExperimentConfig) = print(io,
+    Crayon(bold=true, foreground=:light_blue), "ExperimentConfig", Crayon(reset=true),
+    "($(cfg.config.experiment_type), $(cfg.config.experiment_id), $(cfg.results_dir))",
+)
 
 
 """
@@ -64,10 +72,10 @@ Run training for shared preamble experiment
 - No rerun (`norerun`): If true, skip running this experiment if a results file already exists.
 """
 function run_experiment(expmt::ExperimentConfig; save_results::Bool=true, norerun::Bool=false)
-    println("Running experiment $(expmt.config.experiment_type)->$(expmt.config.experiment_id)")
+    @info "Running experiment $(expmt.config.experiment_type)->$(expmt.config.experiment_id)"
     savefile = joinpath(expmt.results_dir, expmt.config.experiment_type, expmt.config.experiment_id * ".bson")
     mkpath(dirname(savefile), mode=0o755)
-    println("Saving results to $(savefile)")
+    @info "Saving results to $(savefile)"
     if norerun && isfile(savefile)
         oldcfg = loadresults(savefile).config
         if oldcfg == expmt.config
@@ -103,17 +111,18 @@ function run_experiment(expmt::ExperimentConfig; save_results::Bool=true, noreru
         end
     end
     trainer = EchoTrainer(agents, protocol)
-    channel = EchoTrainers.train!(trainer, expmt.config.train_kwargs)
+    # TensorBoard logger
+    logdir = joinpath(expmt.logging_dir, expmt.config.experiment_type, expmt.config.experiment_id)
+    @info "Writing tensorboard logs to $logdir"
+    # Run training
+    channel = EchoTrainers.train!(trainer, expmt.config.train_kwargs, logdir)
     results = nothing
     for msg in channel
         results = msg
         last_iter = maximum(collect(keys(results)))
         if save_results
-            # println("Saving checkpoint @$(last_iter) to $(savefile)...")
             bson(savefile, config=expmt.config, results=results)
             # Load with BSON.load(savefile, Flux)
-        else
-            # println("Iteration $(last_iter) finished...")
         end
     end
     results, trainer.agents
@@ -215,7 +224,7 @@ function reconstruct_agents(results, iter=0)
     kwargs = results[iter][:kwargs]
     agents = Agent[]
     for agent in values(kwargs)
-        push!(Agent(mod=agent.mod, demod=agent.demod))
+        push!(agents, Agent(mod=agent.mod, demod=agent.demod))
     end
     agents
 end

@@ -1,12 +1,15 @@
 module EchoTrainers
 export EchoTrainer, train!
 
+using Crayons
 using Flux
+using Logging
 using Optimisers
+using Printf
 using ProgressMeter
 using Statistics
 using StatsBase: sample
-using Printf
+using TensorBoardLogger
 
 using ..Agents
 using ..ModulationModels
@@ -17,6 +20,9 @@ using ..FluxUtils
 using ..Protocols
 
 using PrettyPrinting
+
+import Base.show
+
 
 """
     EchoTrainer(agents, protocol)
@@ -44,6 +50,11 @@ function EchoTrainer(agents, protocol)
     end
     EchoTrainer(agents, simulator, Evaluator, update_fn!, roundtrip)
 end
+
+Base.show(io::IO, et::EchoTrainer) = print(io,
+    Crayon(bold=true, foreground=:light_magenta), "EchoTrainer", Crayons(reset=true),
+    "(agents = $(et.agents), sim = $(et.simulator_class), rt = $(et.roundtrip))"
+)
 
 
 """
@@ -114,7 +125,7 @@ Returns a new Simulator with the agents replaced and remaining params untouched.
 
 Required to produce correct gradients with new explicit mode differentiation.
 """
-function replace_simulator_agents(sim::S, agents) where {S <: Simulator}
+function replace_simulator_agents(sim::S, agents::Tuple{Agent, Agent}) where {S <: Simulator}
     typeof(sim)(agents[1], agents[2], sim.bits_per_symbol, sim.len_preamble, sim.cuda)
 end
 
@@ -277,9 +288,9 @@ end
 
 
 _ensemble_train_bers(bers) = mean(bers, dims=3)[:, 5]
-
+_diversity_losses(agents) = [loss_diversity(modulate(a.mod, a.mod.all_unique_symbols, explore=false)) for a in agents]
 """
-    train!(trainer, train_args)
+    train!(trainer, train_args, logdir = "./logs")
 
 Run Echo training loop with `trainer`.
 
@@ -290,8 +301,9 @@ to be handled outside the function.
 # Parameters
 - Trainer (`trainer`): EchoTrainer holding training state.
 - Training args (`train_args`): NamedTuple of `train_kwargs` from YAML experiment config.
+- Log directory (`logdir`): Location to write tensorboard logs for this run
 """
-function train!(trainer::EchoTrainer, train_args)
+function train!(trainer::EchoTrainer, train_args, logdir="./tensorboard_logs")
     Channel() do channel
         bps = train_args.bits_per_symbol
         nagents = length(trainer.agents)
@@ -315,48 +327,57 @@ function train!(trainer::EchoTrainer, train_args)
         info = ""
         t0 = time()
         results = Dict{Int, Any}()
-        # Run training loop
-        for iter in 1:train_args.num_iterations_train
-            if iter == 1
-                val_dict = validate(trainer, train_args.len_preamble_eval, train_args.verbose)
-                val_dict[:t_elapsed] = time() - t0
-                results[0] = val_dict
+        # Setup TensorBoard logging
+        lg = TBLogger(logdir, min_level=Logging.Info)
+        with_logger(lg) do
+            # Run training loop
+            for iter in 1:train_args.num_iterations_train
+                if iter == 1
+                    val_dict = validate(trainer, train_args.len_preamble_eval, train_args.verbose)
+                    val_dict[:t_elapsed] = time() - t0
+                    results[0] = val_dict
+                end
+                # Select participating agents
+                if train_args.protocol ∈ [GP, LP] && nagents == 2
+                    idx1 = 1; idx2 = 2
+                else
+                    idx1, idx2 = sample(1:nagents, 2, replace=false)
+                end
+                a1, a2 = trainer.agents[idx1], trainer.agents[idx2]
+                o1, o2 = optims[idx1], optims[idx2]
+                eavesdroppers = trainer.agents[ones(Bool, nagents) .&& (1:nagents .!= idx1) .&& (1:nagents .!= idx2)]
+                # TODO: still necessary?
+                if train_args.protocol ∈ [GP, LP]
+                    sim_models = filter(isneural, [a1.mod, a2.demod])
+                else
+                    sim_models = filter(isneural, vcat([a.mod for a in (a1, a2)], [a.demod for a in (a1, a2)]))
+                end
+                # Run simulation and update
+                simulator = trainer.simulator_class(a1, a2, bps, train_args.len_preamble, iscuda(trainer.agents[1]))
+                newoptims, newa12, losses... = trainer.update_fn!(
+                    simulator, eavesdroppers, SNR_db,
+                    (o1, o2), (a1, a2), train_args.verbose
+                )
+                @info "loss" m1=losses.m1_loss m2=losses.m2_loss d1=losses.d1_loss d2=losses.d2_loss
+                optims[idx1] = newoptims[1]; optims[idx2] = newoptims[2]
+                trainer.agents[idx1] = newa12[1]; trainer.agents[idx2] = newa12[2]
+                # Validate
+                if iter % train_args.stats_every_train == 0 || iter == train_args.num_iterations_train
+                    val_dict = validate(trainer, train_args.len_preamble_eval, train_args.verbose)
+                    val_dict[:t_elapsed] = time() - t0
+                    val_dict[:losses] = losses
+                    results[iter] = val_dict
+                    valbers = _ensemble_train_bers(val_dict[:ber])
+                    @info "ber" ht1=valbers[1] ht2=valbers[2] rt=valbers[3] log_step_increment=0
+                    divlosses = _diversity_losses(trainer.agents)
+                    @info "loss" m1_div=divlosses[1] m2_div=divlosses[2] log_step_increment=0
+                end
+                if iter % train_args.checkpoint_every_train == 0
+                    put!(channel, results)
+                    info = "Checkpointed @$(iter)"
+                end
+                ProgressMeter.next!(p, showvalues=generate_showvalues(iter, losses, results, info))
             end
-            # Select participating agents
-            if train_args.protocol ∈ [GP, LP] && nagents == 2
-                idx1 = 1; idx2 = 2
-            else
-                idx1, idx2 = sample(1:nagents, 2, replace=false)
-            end
-            a1, a2 = trainer.agents[idx1], trainer.agents[idx2]
-            o1, o2 = optims[idx1], optims[idx2]
-            eavesdroppers = trainer.agents[ones(Bool, nagents) .&& (1:nagents .!= idx1) .&& (1:nagents .!= idx2)]
-            # TODO: still necessary?
-            if train_args.protocol ∈ [GP, LP]
-                sim_models = filter(isneural, [a1.mod, a2.demod])
-            else
-                sim_models = filter(isneural, vcat([a.mod for a in (a1, a2)], [a.demod for a in (a1, a2)]))
-            end
-            # Run simulation and update
-            simulator = trainer.simulator_class(a1, a2, bps, train_args.len_preamble, iscuda(trainer.agents[1]))
-            newoptims, newa12, losses = trainer.update_fn!(
-                simulator, eavesdroppers, SNR_db,
-                (o1, o2), (a1, a2), train_args.verbose
-            )
-            optims[idx1] = newoptims[1]; optims[idx2] = newoptims[2]
-            trainer.agents[idx1] = newa12[1]; trainer.agents[idx2] = newa12[2]
-            # Validate
-            if iter % train_args.stats_every_train == 0 || iter == train_args.num_iterations_train
-                val_dict = validate(trainer, train_args.len_preamble_eval, train_args.verbose)
-                val_dict[:t_elapsed] = time() - t0
-                val_dict[:losses] = losses
-                results[iter] = val_dict
-            end
-            if iter % train_args.checkpoint_every_train == 0
-                put!(channel, results)
-                info = "Checkpointed @$(iter)"
-            end
-            ProgressMeter.next!(p, showvalues=generate_showvalues(iter, losses, results, info))
         end
         # Print summary statistics
         elapsed = round(time() - t0, digits=1)

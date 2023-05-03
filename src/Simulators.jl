@@ -5,6 +5,7 @@ export simulate_half_trip, HTResults
 export compute_ber_halftrip, compute_ber_roundtrip, compute_ber_htrt
 
 using Accessors
+using Crayons
 using Flux
 using ChainRules: @ignore_derivatives
 using Statistics
@@ -13,6 +14,20 @@ using ..DataUtils
 using ..FluxUtils
 using ..ModulationModels
 using ..Agents
+
+import Base.show
+
+
+function color_type(t, main_color::Symbol = :blue)
+    typestr = string(typeof(t))
+    tmain, tparam = match(r"(\w+)(\{.+\})*", typestr).captures
+    if tparam === nothing
+        tparam = ""
+    end
+    (Crayon(foreground=main_color, bold=true), tmain,
+     Crayon(foreground=:light_gray, bold=false, italics=true), tparam,
+     Crayon(reset=true))
+end
 
 
 abstract type Simulator end
@@ -49,6 +64,10 @@ struct PrivatePreambleSimulator{A1 <: Agent, A2 <: Agent} <: Simulator
     len_preamble::Int
     cuda::Bool
 end
+
+Base.show(io::IO, s::Simulator) = print(io,
+    Crayon(bold=true, foreground=:light_green), color_type(s, :light_green), Crayon(reset=true),
+)
 
 
 struct RTResults{F <: AbstractArray{Float32}, U <: AbstractArray{UInt16}}
