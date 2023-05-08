@@ -197,7 +197,11 @@ end
 
 function _config_info(cfg)
     title = "$(cfg.experiment_type) → $(cfg.experiment_id), $(cfg.train_kwargs.protocol)"
-    basic_train = "BPS=$(cfg.bps), OPT=$(cfg.train_kwargs.optimiser), ITERS=$(cfg.train_kwargs.num_iterations_train)"
+    basic_train = (
+        "BPS=$(cfg.bps), OPT=$(cfg.train_kwargs.optimiser), " *
+        "SCHED=$(cfg.train_kwargs.schedule.type)[$(cfg.train_kwargs.schedule.T_max)], " *
+        "ITERS=$(cfg.train_kwargs.num_iterations_train)"
+    )
     agents = join(["($(ag.mod) + $(ag.demod))" for ag in cfg.agent_types], ", ")
     agent_detail = (
         "HL_mod=$(cfg.neural_mod_kwargs.hidden_layers), HL_demod=$(cfg.neural_demod_kwargs.hidden_layers), " *

@@ -4,6 +4,7 @@ include("Protocols.jl")
 include("ConfigUtils.jl")
 include("DataUtils.jl")
 include("ExtraOptimisers.jl")
+include("Schedules.jl")
 include("FluxUtils.jl")
 include("ModulationUtils.jl")
 include("LookupTableUtils.jl")
@@ -22,6 +23,8 @@ using Reexport: @reexport
     using .Protocols
     using .ConfigUtils
     using .DataUtils
+    using .ExtraOptimisers
+    using .Schedules
     using .FluxUtils
     using .ModulationUtils
     using .LookupTableUtils

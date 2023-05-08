@@ -13,50 +13,125 @@ import Random
 
 using ..DataUtils
 using ..ExtraOptimisers
+using ..Schedules
 
-export multi_agent_params, get_optimiser_type
+export get_optimiser_type, get_optimisers, get_schedule_type, get_schedules, get_true_lr
 export Memory, memorize!
 export loss_vanilla_pg, loss_crossentropy, loss_diversity
 export symbols_to_onehot, logits_to_symbols_si, logits_to_symbols_sb, normlogpdf
 
 
-
 """
-Deprecated
-
-Construct Params object for all models in agents
-Returns params, list of models
+Return optimiser Type by name
 """
-function multi_agent_params(agents)
-    models = collect(Iterators.flatten([(a.mod, a.demod) for a in agents]))
-    Flux.params(models), models
+function get_optimiser_type(name)
+    name = lowercase(name)
+    opt_map = Dict(
+        "adam" => Optimisers.Adam,
+        "sgd" => Optimisers.Descent,
+        "adamw" => Optimisers.AdamW,
+        "oadam" => Optimisers.OAdam,
+        "adabelief" => Optimisers.AdaBelief,
+        "yogi" => Yogi,
+        "madgrad" => MADGrad,
+        "ldog" => LDoG,
+        "lion" => Optimisers.Lion,
+    )
+    opt_type = get(opt_map, name, nothing)
+    if opt_type === nothing
+        error("Unknown optimiser $(name)")
+    end
+    opt_type
 end
 
 
 """
-Return Flux optimiser type from name
+    optims = get_optimisers(agents, optimiser = Optimisers.Adam)
+
+Initialize optimisers for neural models.
+
+# Parameters
+- Agents (`agents`): Iterable of Agents to optimize.
+- Optimiser (`optimiser`): Optimiser type to use.
+
+# Returns
+- `optims`: Vector of optimiser states for every trainable model
 """
-function get_optimiser_type(name)
-    if lowercase(name) == "adam"
-        return Optimisers.Adam
-    elseif lowercase(name) == "sgd"
-        return Optimisers.Descent
-    elseif lowercase(name) == "adamw"
-        return Optimisers.AdamW
-    elseif lowercase(name) == "oadam"
-        return Optimisers.OAdam
-    elseif lowercase(name) == "adabelief"
-        return Optimisers.AdaBelief
-    elseif lowercase(name) == "yogi"
-        return Yogi
-    elseif lowercase(name) == "madgrad"
-        return MADGrad
-    elseif lowercase(name) == "ldog"
-        return LDoG
-    elseif lowercase(name) == "lion"
-        return Optimisers.Lion
+function get_optimisers(agents, optimiser=Optimisers.Adam)
+    optims = []
+    for a in agents
+        # Don't worry about setting lr here, it will be adjusted for mod & demod below
+        state = Optimisers.setup(optimiser(), a)
+        Optimisers.freeze!(state)
+        if hasfield(typeof(a.mod), :μ)
+            Optimisers.adjust!(state.mod.μ, a.mod.lr_dict.mu)
+            Optimisers.thaw!(state.mod.μ)
+            Optimisers.adjust!(state.mod.log_std, a.mod.lr_dict.std)
+            Optimisers.thaw!(state.mod.log_std)
+        end
+        if hasfield(typeof(a.demod), :net)
+            Optimisers.adjust!(state.demod.net, a.demod.lr)
+            Optimisers.thaw!(state.demod.net)
+        end
+        push!(optims, state)
+    end
+    optims
+end
+
+
+"""
+Return schedule type by name.
+"""
+function get_schedule_type(name)
+    name = lowercase(name)
+    sched_map = Dict(
+        "constant" => ConstantSchedule,
+        "linear" => LinearSchedule,
+        "cosine" => CosineSchedule,
+        "restart" => RestartSchedule,
+    )
+    not_implemented = ["cyclic", "sequence"]
+    if name ∈ not_implemented
+        error("Nested schedules (like $name) are not yet supported")
+    end
+    sched_type = get(sched_map, name, nothing)
+    if sched_type === nothing
+        error("Unknown schedule type $name, try one of $(keys(sched_map))")
+    end
+    sched_type
+end
+
+
+"""
+    schedules = get_schedules(optimisers, schedule_type = ConstantSchedule, schedule_kwargs = ())
+
+Initialize schedules for each optimiser in `optimisers`.
+
+# Parameters
+- Optimisers (`optimisers`): Iterable of optimiser state trees to build schedules for.
+- Schedule type (`schedule_type`): The type of schedules to construct.
+- Schedule keyword arguments (`schedule_kwargs`): Keyword arguments for the schedules.
+"""
+function get_schedules(optimisers, schedule_type=ConstantSchedule, schedule_kwargs=())
+    schedules = []
+    for opt in optimisers
+        push!(schedules, setup(schedule_type, opt; schedule_kwargs...))
+    end
+    schedules
+end
+
+
+"""
+    lr_tree = get_true_lr(schedule, optim)
+
+Returns a tree containing per-parameter LRs for `optim``, determined either by
+`schedule` or, for LDoG optimisers, by the LDoG state.
+"""
+function get_true_lr(schedule, optim, step)
+    if isa(optim.mod.log_std.rule, LDoG)
+        ExtraOptimisers.getlr(optim)
     else
-        throw(ValueError("Unknown optimiser $(name)"))
+        getlr(schedule, step)
     end
 end
 

@@ -2,7 +2,9 @@ module ExtraOptimisers
 export Yogi, MADGrad, LDoG
 import Optimisers
 
+using Functors: fmap, isleaf
 using LinearAlgebra: norm
+
 
 """
     Yogi(η = 1f-3, β = (9f-1, 9.99f-1), ϵ = 1f-3)
@@ -128,17 +130,17 @@ end
 - Epsilon (`ϵ`): Machine epsilon used for numerical stability, added to the sum of gradients.
 """
 struct LDoG{T} <: Optimisers.AbstractRule
-    rϵ::T
+    eta::T  # This is rϵ, but called eta to match other Rule implementations.
     c::T
     weight_decay::T
     ϵ::T
 end
-LDoG(rϵ = 1f-4, c = 1.0, weight_decay = 0.0, ϵ = 1f-8) = LDoG{typeof(rϵ)}(rϵ, c, weight_decay, ϵ)
+LDoG(rϵ = 1f-4, c = 1f0, weight_decay = 0f0, ϵ = 1f-8) = LDoG{typeof(rϵ)}(rϵ, c, weight_decay, ϵ)
 
 Optimisers.init(::LDoG, x::AbstractArray) = (deepcopy(x), 0f0, 0f0, 0)
 
 function Optimisers.apply!(o::LDoG, state, x, dx)
-    rϵ, c, weight_decay, ϵ = o.rϵ, o.c, o.weight_decay, o.ϵ
+    rϵ, c, weight_decay, ϵ = o.eta, o.c, o.weight_decay, o.ϵ
     x0, rbar, Gsqr, t = state
 
     if t == 0
@@ -149,7 +151,7 @@ function Optimisers.apply!(o::LDoG, state, x, dx)
     else
         rbar = max(rbar, norm(x - x0))
         Gsqr += sum(abs2.(dx))
-        η = c * rbar / sqrt(Gsqr)
+        η = c * rbar / (sqrt(Gsqr) + ϵ)
     end
 
     penalty = zero(eltype(x))
@@ -160,6 +162,15 @@ function Optimisers.apply!(o::LDoG, state, x, dx)
 
     return (x0, rbar, Gsqr, t + 1),  dx′
 end
+
+isOptimLeafOrLeaf(l) = isa(l, Optimisers.Leaf) || isleaf(l)
+
+"""
+Returns current η for LDoG state.
+"""
+getlr(l::Optimisers.Leaf) = l.state[end] > 0 ? l.rule.c * l.state[2] / (sqrt(l.state[3]) + l.rule.ϵ) : l.rule.eta
+getlr(o::NamedTuple) = fmap(getlr, o, exclude=isOptimLeafOrLeaf)
+getlr(::Tuple{}) = ()
 
 
 """

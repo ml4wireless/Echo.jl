@@ -12,14 +12,16 @@ using StatsBase: sample
 using TensorBoardLogger
 
 using ..Agents
-using ..ModulationModels
-using ..Simulators
 using ..Evaluators
-using ..LookupTableUtils
 using ..FluxUtils
+using ..LookupTableUtils
+using ..ModulationModels
 using ..Protocols
+using ..Simulators
+using ..Schedules: step!
 
-using PrettyPrinting
+# using PrettyPrinting
+# using Infiltrator
 
 import Base.show
 
@@ -55,37 +57,6 @@ Base.show(io::IO, et::EchoTrainer) = print(io,
     Crayon(bold=true, foreground=:light_magenta), "EchoTrainer", Crayons(reset=true),
     "(agents = $(et.agents), sim = $(et.simulator_class), rt = $(et.roundtrip))"
 )
-
-
-"""
-    get_optimisers(agents, optimiser = Optimisers.Adam)
-
-Initialize optimisers for neural models.
-
-# Returns
-- `optims`: list of optimisers for every trained model
-- `optimised_models`: list of optimised models in matching order
-"""
-function get_optimisers(agents, optimiser=Optimisers.Adam)
-    optims = []
-    for a in agents
-        # Don't worry about setting lr here, it will be adjusted for mod & demod below
-        state = Optimisers.setup(optimiser(), a)
-        Optimisers.freeze!(state)
-        if isneural(a.mod)
-            Optimisers.adjust!(state.mod.μ, a.mod.lr_dict.mu)
-            Optimisers.thaw!(state.mod.μ)
-            Optimisers.adjust!(state.mod.log_std, a.mod.lr_dict.std)
-            Optimisers.thaw!(state.mod.log_std)
-        end
-        if isneural(a.demod)
-            Optimisers.adjust!(state.demod.net, a.demod.lr)
-            Optimisers.thaw!(state.demod.net)
-        end
-        push!(optims, state)
-    end
-    optims
-end
 
 
 """
@@ -286,9 +257,56 @@ function update_private_preamble!(simulator, eavesdroppers, SNR_db,
     (; optims, optim_models, m1_loss, m2_loss, d1_loss, d2_loss)
 end
 
-
+#############################################################
+# Helpers for train!()
+#############################################################
 _ensemble_train_bers(bers) = mean(bers, dims=3)[:, 5]
 _diversity_losses(agents) = [loss_diversity(modulate(a.mod, a.mod.all_unique_symbols, explore=false)) for a in agents]
+
+"""
+    flatten(x::Tuple)
+    flatten(x::NamedTuple)
+`flatten` a nested tuple or named tuple. The result will be a tuple consisting of the
+leaves.
+EXAMPLE:
+```
+julia> x = randnt(3,2)
+(y = (f = :f, b = :b, t = :t), w = (m = :m, f = :f), s = (m = :m, v = :v, q = :q))
+julia> flatten(x)
+(:f, :b, :t, :m, :f, :m, :v, :q)
+```
+
+From [NestedTuples.jl](https://github.com/cscherrer/NestedTuples.jl/blob/master/src/leaves.jl)
+"""
+flatten(x, y...) = (flatten(x)..., flatten(y...)...)
+flatten(x::Tuple) = flatten(x...)
+flatten(x::NamedTuple) = flatten(values(x)...)
+flatten(x) = (x,)
+flatten() = ()
+
+function log_learning_rate(logger, lrs, iter)
+    mulrs = filter(x -> x isa Number, flatten(lrs.mod.μ))
+    stdlr = lrs.mod.log_std
+    dlrs = filter(x -> x isa Number, flatten(lrs.demod.net))
+    # if iter == 1
+    #     mlayout = Dict("LearningRate" => Dict("Learning Rate" => (tb_multiline, vcat(["Mod/log_std"], ["Mod/μ.$i" for i in 1:length(mulrs)]))))
+    #     dlayout = Dict("LearningRate" => Dict("Learning Rate" => (tb_multiline, ["Demod/net.$i" for i in 1:length(dlrs)])))
+    #     log_custom_scalar(logger, mlayout)
+    #     log_custom_scalar(logger, dlayout)
+    # end
+    for (i, lr) in enumerate(mulrs)
+        log_value(logger, "LearningRate/Mod/μ.$i", lr, step=iter)
+    end
+    log_value(logger, "LearningRate/Mod/log_std", stdlr, step=iter)
+    for (i, lr) in enumerate(dlrs)
+        log_value(logger, "LearningRate/Demod/net.$i", lr, step=iter)
+    end
+end
+
+#############################################################
+# Top-level training function
+#############################################################
+
 """
     train!(trainer, train_args, logdir = "./logs")
 
@@ -315,6 +333,7 @@ function train!(trainer::EchoTrainer, train_args, logdir="./tensorboard_logs")
         @info "Training at $(SNR_db) dB SNR"
         # Per-model and separate mu & log_std optimizers for individual learning rates
         optims = get_optimisers(trainer.agents, get_optimiser_type(train_args.optimiser))
+        schedules = get_schedules(optims, get_schedule_type(train_args.schedule.type), train_args.schedule)
         # Setup progress logging
         is_logging(io) = isa(io, Base.TTY) == false || (get(ENV, "CI", nothing) == "true")
         p = Progress(train_args.num_iterations_train, dt=0.25, output=stderr, enabled=!is_logging(stderr))
@@ -358,9 +377,14 @@ function train!(trainer::EchoTrainer, train_args, logdir="./tensorboard_logs")
                     simulator, eavesdroppers, SNR_db,
                     (o1, o2), (a1, a2), train_args.verbose
                 )
-                @info "loss" m1=losses.m1_loss m2=losses.m2_loss d1=losses.d1_loss d2=losses.d2_loss
+                # Replace updated optimisers and agents in lists
                 optims[idx1] = newoptims[1]; optims[idx2] = newoptims[2]
                 trainer.agents[idx1] = newa12[1]; trainer.agents[idx2] = newa12[2]
+                # Log losses and learning rates
+                @info "loss" m1=losses.m1_loss m2=losses.m2_loss d1=losses.d1_loss d2=losses.d2_loss
+                log_learning_rate(lg, get_true_lr(schedules[1], optims[1], iter), iter)
+                # Handle learning rate scheduling and restarts
+                optims = [step!(opt, sch, a, iter) for (opt, sch, a) in zip(optims, schedules, trainer.agents)]
                 # Validate
                 if iter % train_args.stats_every_train == 0 || iter == train_args.num_iterations_train
                     val_dict = validate(trainer, train_args.len_preamble_eval, train_args.verbose)
