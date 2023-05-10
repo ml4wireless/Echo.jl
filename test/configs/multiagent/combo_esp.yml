@@ -1,4 +1,4 @@
-experiment_type: neural_mod_shared_preamble_roundtrip
+experiment_type: test_multiagent
 experiment_id: combo_esp_bps2
 seed: 12
 bps: 2
@@ -87,4 +87,7 @@ train_kwargs:
   num_iterations_train: 2000
   checkpoint_every_train: 500
   optimiser: adam
+  schedule:
+    type: constant
+    T_max: "$train_kwargs.num_iterations_train"
   verbose: false

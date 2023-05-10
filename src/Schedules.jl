@@ -126,7 +126,7 @@ function getlr(s::LinearSchedule, step::Int)::Float32
     if step > s.T_max
         η = s.ηmin
     else
-        η = s.ηmin + (s.ηmax - s.ηmin) * (s.T_max + 1 - step) / s.T_max
+        η = s.ηmin + (s.ηmax - s.ηmin) * (s.T_max - step) / s.T_max
     end
     η
 end
@@ -213,7 +213,18 @@ step!(opt_state, s, model, step::Int) = fmap(step!, opt_state, s, model, treeify
 
 function _schedule_maker(schedule_type, args)
     function make_schedule(leaf)
-        η = leaf.rule.eta
+        η = 0f0
+        # Account for OptimiserChain leaves
+        if leaf.rule isa Optimisers.OptimiserChain
+            for opt in leaf.rule.opts
+                if hasfield(typeof(opt), :eta)
+                    η = opt.eta
+                    break
+                end
+            end
+        else
+            η = leaf.rule.eta
+        end
         # If ηmax not specified, set it to rule's η
         ηmax = get(args, :etamax, η)
         # If ηmin not specified, set it to 0

@@ -5,6 +5,8 @@ using Flux: params, Chain
 push!(LOAD_PATH, "../src")
 using Echo
 
+include("schedule_tests.jl")
+
 
 function run_converges(configfile)
     testname = uppercase(basename(configfile)[1:end - 4])
@@ -172,12 +174,13 @@ end
 
 function main(args)
     helpinfo = """
-julia $PROGRAM_FILE [-t] [-c] [-b] [-m] [-o] [-h]
+julia $PROGRAM_FILE [-t] [-c] [-b] [-m] [-o] [-h] [-s]
     -c to run convergence tests only
     -t to run timing tests only
     -b to run backprop tests only
     -m to run multiagent tests only
     -o to run optimizer tests only
+    -s to run scheduler tests only
     -h to print help
 """
 
@@ -198,7 +201,7 @@ julia $PROGRAM_FILE [-t] [-c] [-b] [-m] [-o] [-h]
     end
 
     testsets = Dict("-c" => "convergence", "-b" => "backprop", "-m" => "multiagent",
-                    "-o" => "optimisers", "-t" => "timing")
+                    "-o" => "optimisers", "-t" => "timing", "-s" => "schedules")
     @testset "All tests" begin
         if length(args) > 0
             print("Running ")
@@ -216,12 +219,15 @@ julia $PROGRAM_FILE [-t] [-c] [-b] [-m] [-o] [-h]
             testmultiagent(maconf)
         elseif "-o" ∈ args
             testoptimizers(optconf)
+        elseif "-s" ∈ args
+            testschedules(optconf[1])
         else
             testtiming(nnconf, ncconf, ncluconf)
             testconvergence(nnconf, ncconf, ncluconf)
             testgradients(nnconf, ncconf, ncluconf)
             testmultiagent(maconf)
             testoptimizers(optconf)
+            testschedules(optconf[1])
         end
     # End all tests
     end

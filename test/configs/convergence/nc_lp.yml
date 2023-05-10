@@ -1,4 +1,4 @@
-experiment_type: neural_mod_loss_passing_halftrip
+experiment_type: test_convergence
 experiment_id: nc_lp_bps2
 seed: 12
 bps: 2
@@ -75,4 +75,7 @@ train_kwargs:
   num_iterations_train: 500
   checkpoint_every_train: 100
   optimiser: adam
+  schedule:
+    type: constant
+    T_max: "$train_kwargs.num_iterations_train"
   verbose: false

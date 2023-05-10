@@ -2,7 +2,7 @@
 module ExperimentManagers
 export ExperimentConfig
 export run_experiment, run_experiment_meta
-export get_mod, get_demod, get_opp_mod, get_opp_demod, reconstruct_agents
+export get_mod, get_demod, get_agent, reconstruct_agents
 
 using Accessors
 using BSON
@@ -180,44 +180,39 @@ function run_experiment_meta(expmt::ExperimentConfig, save_results::Bool=true, r
 end
 
 
-get_mod(expmt::ExperimentConfig) = NeuralMod(;expmt.config.neural_mod_kwargs...)
-
-function get_opp_mod(expmt::ExperimentConfig)
-    if expmt.config.agent_types[2].mod == "neural"
-        kwargs = expmt.config.agent_types[2].alt_kwargs ? expmt.config.neural_mod_2_kwargs :
-                                                          expmt.config.neural_mod_kwargs
-        mod = NeuralMod(;kwargs...)
-    else
-        sampler = ClassicAgentSampler(;expmt.config.classic_agent_sampler_kwargs...)
-        mod = rand(sampler).mod
+function get_mod(expmt::ExperimentConfig, index::Integer = 1)
+    agent_type = expmt.config.agent_types[index]
+    mclass = agent_type_map[agent_type.mod * "mod"]
+    if mclass === nothing
+        return nothing
     end
-    mod
+    mkwargs = agent_type.alt_kwargs ? expmt.config.neural_mod_2_kwargs : expmt.config.neural_mod_kwargs
+    mclass(;mkwargs...)
 end
 
-function get_demod(expmt::ExperimentConfig)
-    if expmt.config.agent_types[1].demod == "neural"
-        demod = NeuralDemod(;expmt.config.neural_demod_kwargs...)
-    elseif expmt.config.agent_types[1].demod == "classic"
-        sampler = ClassicAgentSampler(expmt.config.classic_agent_sampler_kwargs...)
-        demod = rand(sampler).demod
-    else
-        demod = ClusteringDemod(bits_per_symbol=expmt.bps)
+function get_demod(expmt::ExperimentConfig, index::Integer = 1)
+    agent_type = expmt.config.agent_types[index]
+    dclass = agent_type_map[agent_type.demod * "demod"]
+    if dclass === nothing
+        return nothing
     end
-    demod
+    dkwargs = agent_type.alt_kwargs ? expmt.config.neural_demod_2_kwargs : expmt.config.neural_demod_kwargs
+    dclass(;dkwargs...)
 end
 
-function get_opp_demod(expmt::ExperimentConfig)
-    if expmt.config.agent_types[2].demod == "neural"
-        kwargs = expmt.config.agent_types[2].alt_kwargs ? expmt.config.neural_demod_2_kwargs :
-                                                          expmt.config.neural_demod_kwargs
-        demod = NeuralDemod(;kwargs...)
-    elseif expmt.config.agent_types[2].demod == "classic"
-        sampler = ClassicAgentSampler(expmt.config.classic_agent_sampler_kwargs...)
-        demod = rand(sampler).demod
-    else
-        demod = ClusteringDemod(bits_per_symbol=expmt.bps)
-    end
-    demod
+function get_agent(expmt::ExperimentConfig, index::Integer = 1)
+    agent_type = expmt.config.agent_types[index]
+    mclass = agent_type_map[agent_type.mod * "mod"]
+    dclass = agent_type_map[agent_type.demod * "demod"]
+    mkwargs = agent_type.alt_kwargs ? expmt.config.neural_mod_2_kwargs : expmt.config.neural_mod_kwargs
+    dkwargs = agent_type.alt_kwargs ? expmt.config.neural_demod_2_kwargs : expmt.config.neural_demod_kwargs
+    sampler = AgentSampler(
+        mod_class=mclass, demod_class=dclass,
+        mod_kwargs=mclass === nothing ? (;) : mkwargs,
+        demod_kwargs=dclass === nothing ? (;) : dkwargs;
+        expmt.config.classic_agent_sampler_kwargs...
+    )
+    rand(sampler)
 end
 
 function reconstruct_agents(results, iter=0)

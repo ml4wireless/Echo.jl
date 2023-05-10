@@ -261,7 +261,8 @@ end
 # Helpers for train!()
 #############################################################
 _ensemble_train_bers(bers) = mean(bers, dims=3)[:, 5]
-_diversity_losses(agents) = [loss_diversity(modulate(a.mod, a.mod.all_unique_symbols, explore=false)) for a in agents]
+_safe_diversity(a) = isneural(a.mod) ? loss_diversity(modulate(a.mod, a.mod.all_unique_symbols, explore=false)) : 0f0
+_diversity_losses(agents) = [_safe_diversity(a) for a in agents]
 
 """
     flatten(x::Tuple)
@@ -287,7 +288,10 @@ flatten() = ()
 function log_learning_rate(logger, lrs, iter)
     mulrs = filter(x -> x isa Number, flatten(lrs.mod.μ))
     stdlr = lrs.mod.log_std
-    dlrs = filter(x -> x isa Number, flatten(lrs.demod.net))
+    dlrs = Float32[]
+    if isa(lrs.demod, NamedTuple) && haskey(lrs.demod, :net)
+        dlrs = filter(x -> x isa Number, flatten(lrs.demod.net))
+    end
     # if iter == 1
     #     mlayout = Dict("LearningRate" => Dict("Learning Rate" => (tb_multiline, vcat(["Mod/log_std"], ["Mod/μ.$i" for i in 1:length(mulrs)]))))
     #     dlayout = Dict("LearningRate" => Dict("Learning Rate" => (tb_multiline, ["Demod/net.$i" for i in 1:length(dlrs)])))
@@ -303,6 +307,13 @@ function log_learning_rate(logger, lrs, iter)
     end
 end
 
+function log_losses(logger, losses, iter)
+    # @info "loss" m1=losses.m1_loss m2=losses.m2_loss d1=losses.d1_loss d2=losses.d2_loss
+    for (k, v) in pairs(losses)
+        name = string(k)
+        log_value(logger, "loss/$name", v, step=iter)
+    end
+end
 #############################################################
 # Top-level training function
 #############################################################
@@ -381,7 +392,7 @@ function train!(trainer::EchoTrainer, train_args, logdir="./tensorboard_logs")
                 optims[idx1] = newoptims[1]; optims[idx2] = newoptims[2]
                 trainer.agents[idx1] = newa12[1]; trainer.agents[idx2] = newa12[2]
                 # Log losses and learning rates
-                @info "loss" m1=losses.m1_loss m2=losses.m2_loss d1=losses.d1_loss d2=losses.d2_loss
+                log_losses(lg, losses, iter)
                 log_learning_rate(lg, get_true_lr(schedules[1], optims[1], iter), iter)
                 # Handle learning rate scheduling and restarts
                 optims = [step!(opt, sch, a, iter) for (opt, sch, a) in zip(optims, schedules, trainer.agents)]

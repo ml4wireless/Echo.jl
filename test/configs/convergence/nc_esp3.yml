@@ -1,4 +1,4 @@
-experiment_type: neural_mod_shared_preamble_roundtrip
+experiment_type: test_convergence
 experiment_id: nc_esp_bps3
 seed: 12
 bps: 3
@@ -76,4 +76,7 @@ train_kwargs:
   num_iterations_train: 1000
   checkpoint_every_train: 100
   optimiser: adam
+  schedule:
+    type: constant
+    T_max: "$train_kwargs.num_iterations_train"
   verbose: false
