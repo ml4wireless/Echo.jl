@@ -37,7 +37,7 @@ function run_meets_timing(configfile, maxtime)
     _ = run_experiment(ec, save_results=false)
     t1 = time()
     elapsed = t1 - t0
-    @info "Runtime for $configfile" elapsed
+    @info "Runtime for $configfile" elapsed maxtime
     println()
     elapsed <= maxtime
 end
