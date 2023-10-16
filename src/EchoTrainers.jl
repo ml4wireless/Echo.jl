@@ -257,6 +257,25 @@ function update_private_preamble!(simulator, eavesdroppers, SNR_db,
     (; optims, optim_models, m1_loss, m2_loss, d1_loss, d2_loss)
 end
 
+
+function update_self_play!(agent, train_args, bps, SNR_db, iter=1)
+    """
+    Update agent with gradient-passing self-play via SGD(lr=η)"
+    """
+    a1 = Agent(agent.mod, nothing)
+    a2 = Agent(nothing, agent.demod)
+    η = train_args.self_play.lr * train_args.self_play.lr_decay ^ (iter - 1)
+    o1 = Optimisers.setup(Optimisers.Descent(η), a1)
+    o2 = Optimisers.setup(Optimisers.Descent(η), a2)
+    # Run simulation and update
+    simulator = GradientPassingSimulator(a1, a2, bps, train_args.len_preamble, iscuda(agent))
+    newoptims, newa12, losses... = update_gradient_passing!(
+        simulator, Vector{Agent}(), SNR_db,
+        (o1, o2), (a1, a2), train_args.verbose
+    )
+    Agent(newa12[1].mod, newa12[2].demod)
+end
+
 #############################################################
 # Helpers for train!()
 #############################################################
@@ -314,6 +333,7 @@ function log_losses(logger, losses, iter)
         log_value(logger, "loss/$name", v, step=iter)
     end
 end
+
 #############################################################
 # Top-level training function
 #############################################################
@@ -388,6 +408,15 @@ function train!(trainer::EchoTrainer, train_args, logdir="./tensorboard_logs")
                     simulator, eavesdroppers, SNR_db,
                     (o1, o2), (a1, a2), train_args.verbose
                 )
+                # Run self-play if enabled
+                if train_args.self_play.enable
+                    a1, a2 = newa12
+                    for _ in 1:train_args.self_play.rounds
+                        a1 = update_self_play!(a1, train_args, bps, SNR_db, iter)
+                        a2 = update_self_play!(a2, train_args, bps, SNR_db, iter)
+                    end
+                    newa12 = (a1, a2)
+                end
                 # Replace updated optimisers and agents in lists
                 optims[idx1] = newoptims[1]; optims[idx2] = newoptims[2]
                 trainer.agents[idx1] = newa12[1]; trainer.agents[idx2] = newa12[2]

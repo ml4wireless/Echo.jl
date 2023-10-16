@@ -213,7 +213,7 @@ function compute_ber_roundtrip(sim::Simulator, SNR_db::Float32)
     # For private preamble + clustering demod, do a warmup round to set the cluster means
     if isa(sim, PrivatePreambleSimulator) && any([isclustering(a.demod) for a in [sim.agent1, sim.agent2]])
         warmup_sim = @set sim.len_preamble = max(div(sim.len_preamble, 10), 100)
-        simulate(sim, SNR_db, explore=false)
+        simulate(warmup_sim, SNR_db, explore=false)
     end
     res = simulate(sim, SNR_db, explore=false)
     ber = get_bit_error_rate_sb(res.preamble1, res.d1_rt_symbs)
@@ -223,6 +223,7 @@ end
 
 compute_ber_halftrip(sim::Simulator, SNR_db::Real) = compute_ber_halftrip(sim, Float32(SNR_db))
 function compute_ber_halftrip(sim::Simulator, SNR_db::Float32)::Tuple{Float32, Float32}
+    cuda = iscuda(sim.agent1)
     res = simulate_half_trip(sim.agent1, sim.agent2, sim.bits_per_symbol, sim.len_preamble, SNR_db, false, cuda=cuda)
     ber1 = get_bit_error_rate_sb(res.preamble, res.d2_symbs)
     if isa(sim, GradientPassingSimulator) || isa(sim, LossPassingSimulator)
@@ -240,7 +241,7 @@ function compute_ber_htrt(sim::Simulator, SNR_db::Float32)::Tuple{Float32, Float
     # For private preamble + clustering demod, do a warmup round to set the cluster means
     if isa(sim, PrivatePreambleSimulator) && any([isclustering(a.demod) for a in [sim.agent1, sim.agent2]])
         warmup_sim = @set sim.len_preamble = max(div(sim.len_preamble, 10), 100)
-        simulate(sim, SNR_db, explore=false)
+        simulate(warmup_sim, SNR_db, explore=false)
     end
     res = simulate(sim, SNR_db, explore=false)
     if isa(sim, GradientPassingSimulator) || isa(sim, LossPassingSimulator)

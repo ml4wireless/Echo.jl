@@ -8,10 +8,14 @@ using Echo
 include("schedule_tests.jl")
 
 
-function run_converges(configfile)
+function run_converges(configfile, enable_self_play=false)
     testname = uppercase(basename(configfile)[1:end - 4])
+    if enable_self_play
+        testname *= "-SP"
+    end
     @info testname
     cfg = loadconfig(configfile)
+    cfg = @set cfg.train_kwargs.self_play.enable = enable_self_play
     ec = ExperimentConfig(cfg, "/tmp")
     results, _ = run_experiment(ec, save_results=false)
     bers = finalbers(results)
@@ -171,6 +175,30 @@ function testoptimizers(optconf)
 end
 
 
+function testselfplay(nnconf, ncconf, ncluconf)
+    @testset "Self-play" begin
+        @testset "NN self-play" begin
+            for c in nnconf
+                @test run_converges(c, enable_self_play=true)
+            end
+        end
+
+        @testset "NC self-play" begin
+            for c in ncconf
+                @test run_converges(c, enable_self_play=true)
+            end
+        end
+
+        @testset "NClu self-play" begin
+            for c in ncluconf
+                @test run_converges(c, enable_self_play=true)
+            end
+        end
+    end
+end
+
+
+
 
 function main(args)
     helpinfo = """
@@ -201,7 +229,8 @@ julia $PROGRAM_FILE [-t] [-c] [-b] [-m] [-o] [-h] [-s]
     end
 
     testsets = Dict("-c" => "convergence", "-b" => "backprop", "-m" => "multiagent",
-                    "-o" => "optimisers", "-t" => "timing", "-s" => "schedules")
+                    "-o" => "optimisers", "-t" => "timing", "-s" => "schedules",
+                    "-S" => "self-play",)
     @testset "All tests" begin
         if length(args) > 0
             print("Running ")
@@ -221,6 +250,8 @@ julia $PROGRAM_FILE [-t] [-c] [-b] [-m] [-o] [-h] [-s]
             testoptimizers(optconf)
         elseif "-s" ∈ args
             testschedules(optconf[1])
+        elseif "-S" ∈ args
+            testselfplay(nnconf, ncconf, ncluconf)
         else
             testtiming(nnconf, ncconf, ncluconf)
             testconvergence(nnconf, ncconf, ncluconf)
@@ -228,6 +259,7 @@ julia $PROGRAM_FILE [-t] [-c] [-b] [-m] [-o] [-h] [-s]
             testmultiagent(maconf)
             testoptimizers(optconf)
             testschedules(optconf[1])
+            testselfplay(nnconf, ncconf, ncluconf)
         end
     # End all tests
     end
