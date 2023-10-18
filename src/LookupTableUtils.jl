@@ -3,19 +3,21 @@ export get_optimal_SNR_for_BER, get_optimal_SNR_for_SER, get_optimal_SNR_for_BER
 export get_optimal_BER, get_optimal_SER, get_optimal_BER_roundtrip, get_optimal_SER_roundtrip, get_optimal_BERs, get_optimal_BERs_roundtrip
 export get_test_SNR_dbs, get_test_SNR_dbs_roundtrip
 
-using PyCall
+using BSON
+# using PyCall
 
 
-function read_pickle_data(file_name)
-    py"""
-    import pickle
-    def read_pickle(file_name):
-        with open(file_name, "rb") as f:
-            return pickle.load(f)
-    """
-    py"read_pickle"(file_name)
-end
-const ber_lookup_table = read_pickle_data("$(Base.@__DIR__)/ber_lookup_table.pkl")
+# function read_pickle_data(file_name)
+#     py"""
+#     import pickle
+#     def read_pickle(file_name):
+#         with open(file_name, "rb") as f:
+#             return pickle.load(f)
+#     """
+#     py"read_pickle"(file_name)
+# end
+# const ber_lookup_table = read_pickle_data("$(Base.@__DIR__)/ber_lookup_table.pkl")
+const ber_lookup_table = BSON.load("$(Base.@__DIR__)/ber_lookup_table.bson")
 
 
 function bisect_left(a, x, lo = 1, hi = nothing)
