@@ -36,6 +36,7 @@ function get_optimiser_type(name)
         "madgrad" => MADGrad,
         "ldog" => LDoG,
         "lion" => Optimisers.Lion,
+        "prodigy" => Prodigy,
     )
     opt_type = get(opt_map, name, nothing)
     if opt_type === nothing

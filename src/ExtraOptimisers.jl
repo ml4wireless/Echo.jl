@@ -1,5 +1,5 @@
 module ExtraOptimisers
-export Yogi, MADGrad, LDoG
+export Yogi, MADGrad, LDoG, Prodigy
 import Optimisers
 
 using Functors: fmap, isleaf
@@ -62,7 +62,7 @@ This optimiser maintains state equal to 3x the size of optimised params `x`.
 - Decay (`decay`): Weight decay, i.e. L2 penalty.
 - Machine epsilon (`ϵ`): Constant to prevent division by zero, may help for
                          problems with very small gradients to set to 0.
-- Decouple Decay (`decouple_decay`): Apply AdamW style decoupled weight decay
+- Decouple decay (`decouple_decay`): Apply AdamW style decoupled weight decay
 
 https://github.com/facebookresearch/madgrad/blob/main/madgrad/madgrad.py
 """
@@ -213,6 +213,124 @@ function Optimisers.apply!(o::Lion, state, x, dx)
     Optimisers.@.. mt = β[2] * mt + (1 - β[2]) * dx
 
     return (mt,), dx′
+end
+
+
+"""
+    Prodigy(eta = 1.0, beta = (9f-1, 9.99f-1), beta3 = nothing, d_coef=1f0, weight_decay = 0f0)
+
+[Prodigy](https://arxiv.org/abs/2306.06101) optimiser
+
+WARNING: This is a layer-wise implementation because Optimisers.jl does not have a mechanism
+for globally calculated parameters. It may be possible to get around this by using a flattened
+parameter vector (with `destructure`) during setup and update calls, but this is untested.
+
+# Parameters
+- Learning rate (`eta`): Amount by which gradients are discounted before updating
+                         the weights. Should stay 1.0, learning rates can be tuned with
+                         `d_coef` instead.
+- Beta (`beta`): Tuple of (beta1, beta2), representing gradient discounting for running
+                 averages of gradients and squared gradients.
+- Beta3 (`beta3`): Optional third beta for running average of gradients. Defaults to
+                   sqrt(beta2).
+- Epsilon (`eps`): Small constant to prevent division by zero.
+- Weight decay (`weight_decay`):  L2 penalty, weight_decay * x_t is added
+                                  directly to the gradient.
+- Decouple (`decouple`): Apply AdamW style decoupled weight decay, default=true.
+- Use bias correction (`use_bias_correction`): Turn on Adam's bias correction. Off by default.
+- Safeguard warmup (`safeguard_warmup`): Remove lr from the denominator of D estimate to
+                                         avoid issues during warm-up stage. Off by default.
+- d0 (`d0`): Initial value for D estimate. Defaults to 1f-6. Rarely needs to be changed.
+- D coefficient (`d_coef`): Coefficient for D estimate. Defaults to 1.0. Can be used to
+                            tune learning rates; d_coef < 1 decreases estimates, d_coef > 1
+                            increases estimates. Changing this parameter is the preferred way
+                            to tune learning rates.
+- Growth rate (`growth_rate`): Prevent the D estimate from growing faster than this
+                               multipicative rate. Default is Inf, unrestricted. Values like
+                               1.02 give a kind of learning rate warmup effect.
+"""
+struct Prodigy{T} <: Optimisers.AbstractRule
+    eta::T
+    beta::Tuple{T, T}
+    beta3::T
+    ϵ::T
+    weight_decay::T
+    decouple::Bool
+    use_bias_correction::Bool
+    safeguard_warmup::Bool
+    d0::T
+    d_coef::T
+    growth_rate::T
+end
+function Prodigy(η=1f0, β=(9f-1, 9.99f-1), β3=nothing, d_coef=1f0, weight_decay=0f0)
+    if β3 === nothing
+        β3 = sqrt(β[2])
+    end
+    Prodigy{typeof(η)}(
+        eta=η, beta=β, beta3=β3, ϵ=typeof(η)(1e-8),
+        weight_decay=weight_decay, decouple=true,
+        use_bias_correction=false, safeguard_warmup=false,
+        d0=typeof(η)(1e-6), d_coef=d_coef, growth_rate=typeof(η)(Inf))
+end
+
+# Prodigy state: x0, m, v, s, d, d_max, d_numerator, t
+Optimisers.init(p::Prodigy, x::AbstractArray) = (deepcopy(x), zero(x), zero(x), zero(x), p.d0, p.d0, 0f0, 0)
+
+function Optimisers.apply!(o::Prodigy, state, x, dx)
+    x0, m, v, s, d, d_max, d_numerator, t = state
+
+    d_numerator *= o.beta3
+
+    # Bias correction for Adam
+    if o.use_bias_correction
+        bias_correction = (sqrt(one(eltype(x)) - o.beta[2] ^ (t + 1))) / (one(eltype(x)) - o.beta[1] ^ (t + 1))
+    else
+        bias_correction = one(eltype(x))
+    end
+    d_lr = d * o.eta * bias_correction
+
+    # Weight decay penalty: coupled
+    if o.weight_decay > 0 && !o.decouple
+        @.. dx += o.weight_decay * x
+    end
+
+    # Use d/d0 to avoid values that are too small
+    d_numerator += (d / o.d0) * d_lr * dot(vec(dx), vec(x0 - x))
+
+    # Adam EMA updates
+    @.. m = o.beta[1] * m + d * (one(eltype(x)) - o.beta[1]) * dx
+    @.. v = o.beta[2] * v + d * d * (one(eltype(x)) - o.beta[2]) * dx * dx
+
+    if o.safeguard_warmup
+        @.. s = o.beta3 * s + (d / o.d0) * d * dx
+    else
+        @.. s = o.beta3 * s + (d / o.d0) * d_lr * dx
+    end
+
+    d_denom = norm(s, 1)
+    if d_denom == 0
+        # If gradients exist, they are 0 so we can't update parameters
+        return (x0, m, v, s, d, d_max, d_numerator, t + 1), zero(x)
+    end
+
+    d_hat = d_coef * d_numerator / d_denom
+
+    # Clip d to growth rate
+    if d == o.d0
+        d = max(d, d_hat)
+    end
+    d_max = max(d_max, d_hat)
+    d = min(d_max, d * growth_rate)
+
+    # Calculate final update
+    dx′ = zeros(x)
+    if o.weight_decay > 0 && o.decouple
+        @.. dx′ -= x * o.weight_decay * d_lr
+    end
+    denom = sqrt(v) + d * o.ϵ
+    @.. dx′ -= d_lr * m / denom
+
+    return (x0, m, v, s, d, d_max, d_numerator, t + 1), dx′
 end
 
 
