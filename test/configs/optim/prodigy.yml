@@ -1,5 +1,5 @@
-experiment_type: test_multiagent
-experiment_id: combo_lp_bps2
+experiment_type: test_optim
+experiment_id: nn_esp_bps2_ldog
 seed: 12
 bps: 2
 
@@ -13,8 +13,8 @@ neural_mod_kwargs:
     max: 1.0
     min: -3.0
   lr_dict:
-    mu: 5e-3
-    std: 1e-3
+    mu: 1
+    std: 1
 
 neural_mod_2_kwargs:
   bits_per_symbol: "$bps"
@@ -26,31 +26,29 @@ neural_mod_2_kwargs:
     max: 1.0
     min: -3.0
   lr_dict:
-    mu: 1e-2
-    std: 1e-2
+    mu: 1
+    std: 1
 
 neural_demod_kwargs:
   bits_per_symbol: "$bps"
   activation_fn_hidden: elu
   hidden_layers: [20]
-  lr: 3e-2
+  lr: 1
 
-neural_demod_2_kwargs:
-  bits_per_symbol: "$bps"
-  activation_fn_hidden: elu
-  hidden_layers: [20]
-  lr: 5e-2
+neural_demod_2_kwargs: "$neural_demod_kwargs"
+
+partner_model_kwargs: "$neural_demod_kwargs"
 
 classic_agent_sampler_kwargs:
   bits_per_symbol: "$bps"
-  min_rotation_deg: 30.0
+  min_rotation_deg: 00.0
   max_rotation_deg: 30.0
   avg_power: 1.0
 
 agent_types:
   - mod: neural
     demod: neural
-    count: 2
+    count: 1
     alt_kwargs: false
     self_play: false
     use_prtnr_model: false
@@ -60,14 +58,6 @@ agent_types:
     alt_kwargs: true
     self_play: false
     use_prtnr_model: false
-  - mod: classic
-    demod: classic
-    count: 1
-    alt_kwargs: false
-  - mod: classic
-    demod: cluster
-    count: 1
-    alt_kwargs: false
 
 train_kwargs:
   meta:
@@ -83,14 +73,14 @@ train_kwargs:
     first_order: false
     inner_step_meta_grad_weighting: last
   bits_per_symbol: "$bps"
-  protocol: lp
+  protocol: esp
   target_ber: 0.01
   len_preamble: 64
   len_preamble_eval: 10000
-  stats_every_train: 50
-  num_iterations_train: 2000
-  checkpoint_every_train: 200
-  optimiser: adam
+  stats_every_train: 10
+  num_iterations_train: 1000
+  checkpoint_every_train: 100
+  optimiser: prodigy
   schedule:
     type: constant
     T_max: "$train_kwargs.num_iterations_train"

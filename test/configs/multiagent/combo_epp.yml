@@ -52,10 +52,14 @@ agent_types:
     demod: neural
     count: 2
     alt_kwargs: false
+    self_play: false
+    use_prtnr_model: false
   - mod: neural
     demod: neural
     count: 1
     alt_kwargs: true
+    self_play: false
+    use_prtnr_model: false
   - mod: classic
     demod: classic
     count: 1

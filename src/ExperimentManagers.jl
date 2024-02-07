@@ -18,6 +18,8 @@ using ..EchoTrainers
 using ..Protocols
 using ..ResultsUtils: loadresults
 
+using Infiltrator
+
 import Base.show
 
 
@@ -93,13 +95,27 @@ function run_experiment(expmt::ExperimentConfig; save_results::Bool=true, noreru
     for agent_type in expmt.config.agent_types
         mclass = agent_type_map[agent_type.mod * "mod"]
         dclass = agent_type_map[agent_type.demod * "demod"]
+        pmclass = agent_type_map["neuraldemod"]
         mkwargs = agent_type.alt_kwargs ? expmt.config.neural_mod_2_kwargs : expmt.config.neural_mod_kwargs
         dkwargs = agent_type.alt_kwargs ? expmt.config.neural_demod_2_kwargs : expmt.config.neural_demod_kwargs
+        # Self-play can only be enabled for neural agents
+        self_play = agent_type.mod == "neural" || agent_type.demod == "neural" ? agent_type.self_play : false
+        if self_play && (mclass === nothing || dclass === nothing)
+            @error "Self-play can only be run for agents with both mod ($(mclass !== nothing)) and demod ($(dclass !== nothing)), continuing with self-play disabled."
+            self_play = false
+        end
+        # Partner modeling can only be enabled for neural mods
+        use_prtnr_model = agent_type.mod == "neural" ? agent_type.use_prtnr_model : false
+        pmkwargs = use_prtnr_model ? expmt.config.partner_model_kwargs : (;)
+        pmclass = use_prtnr_model ? pmclass : nothing
         sampler = AgentSampler(
             mod_class=mclass, demod_class=dclass,
             mod_kwargs=mclass === nothing ? (;) : mkwargs,
             demod_kwargs=dclass === nothing ? (;) : dkwargs;
-            expmt.config.classic_agent_sampler_kwargs...
+            prtnr_model_class=pmclass, prtnr_model_kwargs=pmkwargs,
+            self_play=self_play,
+            use_prtnr_model=use_prtnr_model,
+            expmt.config.classic_agent_sampler_kwargs...,
         )
         for _ in 1:agent_type.count
             push!(agents, rand(sampler))

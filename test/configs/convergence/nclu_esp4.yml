@@ -13,7 +13,7 @@ neural_mod_kwargs:
     max: 1.0
     min: -3.0
   lr_dict:
-    mu: 5e-4
+    mu: 3e-4
     std: 1e-2
 
 neural_mod_2_kwargs: "$neural_mod_kwargs"
@@ -37,10 +37,14 @@ agent_types:
     demod: neural
     count: 1
     alt_kwargs: false
+    self_play: false
+    use_prtnr_model: false
   - mod: classic
     demod: cluster
     count: 1
     alt_kwargs: false
+    self_play: false
+    use_prtnr_model: false
 
 train_kwargs:
   meta:
@@ -68,4 +72,12 @@ train_kwargs:
   schedule:
     type: constant
     T_max: "$train_kwargs.num_iterations_train"
+  self_play:
+    lr: 0.01
+    lr_decay: 0.995
+    rounds: 1
+  partner_modeling:
+    lr: 0.01
+    warmup: 0
+    rounds: 1
   verbose: false

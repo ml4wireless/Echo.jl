@@ -21,7 +21,7 @@ using ..Simulators
 using ..Schedules: step!
 
 # using PrettyPrinting
-# using Infiltrator
+using Infiltrator
 
 import Base.show
 
@@ -127,6 +127,55 @@ end
 
 
 """
+Partner model update with cross-entropy loss (KL-divergence for hard decision feedback)
+"""
+function update_partner_model!(agent, train_args, res::RTResults, agent_idx::Int, verbose=false)
+    """
+    Update agent with partner model via SGD(lr=η) for round-trip, agent number `agent_idx`"
+    """
+    η = train_args.partner_modeling.lr * train_args.partner_modeling.lr_decay ^ (idx - 1)
+    o = Optimisers.setup(Optimisers.Descent(η), agent.prtnr_model)
+    loss = 0
+    # Run forward pass and update
+    grads = Flux.gradient(agent.prtnr_model) do prtnr_model
+        if agent_idx == 1
+            target = symbols_to_onehot(res.d1_rt_symbs)
+            logits = prtner_model(res.m1_actions)
+        else
+            target = symbols_to_onehot(res.d2_rt_symbs)
+            logits = prtnr_model(res.m2_actions)
+        end
+        loss = crossentropy_loss(logits=logits, target=target)
+    end
+    if verbose
+        println("Partner model loss: $(loss)")
+    end
+    _, newprtnr_model = Optimisers.update!(o, agent.prtnr_model, grads[1])
+    Agent(agent, prtnr_model=newprtnr_model)
+end
+
+function update_partner_model!(agent, train_args, res::HTResults, verbose=false)
+    """
+    Update agent with partner model via SGD(lr=η) for half-trip"
+    """
+    η = train_args.partner_modeling.lr * train_args.partner_modeling.lr_decay ^ (idx - 1)
+    o = Optimisers.setup(Optimisers.Descent(η), agent.prtnr_model)
+    loss = 0
+    # Run forward pass and update
+    grads = Flux.gradient(agent.prtnr_model) do prtnr_model
+        target = symbols_to_onehot(res.d2_symbs)
+        logits = prtnr_model(res.m1_actions)
+        loss = crossentropy_loss(logits=logits, target=target)
+    end
+    if verbose
+        println("Partner model loss: $(loss)")
+    end
+    _, newprtnr_model = Optimisers.update!(o, agent.prtnr_model, grads[1])
+    Agent(agent, prtnr_model=newprtnr_model)
+end
+
+
+"""
 Gradient Passing update logic
 """
 function update_gradient_passing!(simulator, eavesdroppers, SNR_db,
@@ -173,6 +222,11 @@ function update_loss_passing!(simulator, eavesdroppers, SNR_db,
     if verbose
         println("m1 loss: $(m1_loss), d2 loss: $(d2_loss)")
     end
+    # Update the partner models based on this simulation
+    if optim_models[1].use_prtnr_model
+        optim_models[1] = update_partner_model!(optim_models[1], train_args, res, verbose)
+    end  # Only agent 1 (mod)'s partner model can be updated for LP
+    # Update the mod and demod models
     # Pass grads[1] because we pass in agents as first arg to gradient()
     optims, optim_models = apply_model_updates!(optims, optim_models, grads[1])
     (; optims, optim_models, m1_loss, d2_loss)
@@ -212,6 +266,14 @@ function update_shared_preamble!(simulator, eavesdroppers, SNR_db,
     if verbose
         println("m1 loss: $(m1_loss), m2 loss: $(m2_loss), d1 loss: $(d1_loss), d2 loss: $(d2_loss)")
     end
+    # Update the partner models based on this simulation
+    if optim_models[1].use_prtnr_model
+        optim_models[1] = update_partner_model!(optim_models[1], train_args, res, 1, verbose)
+    end
+    if optim_models[2].use_prtnr_model
+        optim_models[2] = update_partner_model!(optim_models[2], train_args, res, 2, verbose)
+    end
+    # Update the mod and demod models
     # Pass grads[1] because we pass in agents as first arg to gradient()
     optims, optim_models = apply_model_updates!(optims, optim_models, grads[1])
     (; optims, optim_models, m1_loss, m2_loss, d1_loss, d2_loss)
@@ -252,6 +314,14 @@ function update_private_preamble!(simulator, eavesdroppers, SNR_db,
     if verbose
         println("m1 loss: $(m1_loss), m2 loss: $(m2_loss), d1 loss: $(d1_loss), d2 loss: $(d2_loss)")
     end
+    # Update the partner models based on this simulation
+    if optim_models[1].use_prtnr_model
+        optim_models[1] = update_partner_model!(optim_models[1], train_args, res, 1, verbose)
+    end
+    if optim_models[2].use_prtnr_model
+        optim_models[2] = update_partner_model!(optim_models[2], train_args, res, 2, verbose)
+    end
+    # Update the mod and demod models
     # Pass grads[1] because we pass in agents as first arg to gradient()
     optims, optim_models = apply_model_updates!(optims, optim_models, grads[1])
     (; optims, optim_models, m1_loss, m2_loss, d1_loss, d2_loss)
@@ -262,6 +332,9 @@ function update_self_play!(agent, train_args, bps, SNR_db, iter=1)
     """
     Update agent with gradient-passing self-play via SGD(lr=η)"
     """
+    if agent.mod === nothing || agent.demod === nothing
+        @infiltrate
+    end
     a1 = Agent(agent.mod, nothing)
     a2 = Agent(nothing, agent.demod)
     η = train_args.self_play.lr * train_args.self_play.lr_decay ^ (iter - 1)
@@ -269,12 +342,43 @@ function update_self_play!(agent, train_args, bps, SNR_db, iter=1)
     o2 = Optimisers.setup(Optimisers.Descent(η), a2)
     # Run simulation and update
     simulator = GradientPassingSimulator(a1, a2, bps, train_args.len_preamble, iscuda(agent))
-    newoptims, newa12, losses... = update_gradient_passing!(
-        simulator, Vector{Agent}(), SNR_db,
-        (o1, o2), (a1, a2), train_args.verbose
-    )
-    Agent(newa12[1].mod, newa12[2].demod)
+    for _ in 1:train_args.self_play.rounds
+        newoptims, newa12, losses... = update_gradient_passing!(
+            simulator, Vector{Agent}(), SNR_db,
+            (o1, o2), (a1, a2), train_args.verbose
+        )
+        a1, a2 = newa12
+        o1, o2 = newoptims
+    end
+    Agent(agent, mod=a1.mod, demod=a2.demod)
 end
+
+
+function update_from_partner_model!(agent, train_args, bps, SNR_db, iter=1)
+    """
+    Update agent with gradient-passing and partner model via SGD(lr=η)"
+    """
+    newmod = agent.mod
+    η = train_args.partner_modeling.lr * train_args.partner_modeling.lr_decay ^ (iter - 1)
+    o = Optimisers.setup(Optimisers.Descent(η), agent.mod)
+    cuda = iscuda(agent)
+    bps = agent.mod.bits_per_symbol
+    len_preamble = train_args.len_preamble
+    # Run forward pass and update
+    for _ in 1:train_args.partner_modeling.rounds
+        preamble = get_random_data_sb(len_preamble, bps, cuda=cuda)
+        target = symbols_to_onehot(preamble)
+        grads = Flux.gradient(newmod) do mod
+            actions = modulate(mod, preamble, explore=false)
+            logits = agent.prtnr_model(actions)
+            crossentropy_loss(logits=logits, target=target)
+        end
+        o, newmod = Optimisers.update!(o, newmod, grads[1])
+    end
+    # Return agent with new mod
+    Agent(agent, mod=newmod)
+end
+
 
 #############################################################
 # Helpers for train!()
@@ -409,13 +513,18 @@ function train!(trainer::EchoTrainer, train_args, logdir="./tensorboard_logs")
                     (o1, o2), (a1, a2), train_args.verbose
                 )
                 # Run self-play if enabled
-                if train_args.self_play.enable
-                    a1, a2 = newa12
-                    for _ in 1:train_args.self_play.rounds
-                        a1 = update_self_play!(a1, train_args, bps, SNR_db, iter)
-                        a2 = update_self_play!(a2, train_args, bps, SNR_db, iter)
-                    end
-                    newa12 = (a1, a2)
+                a1, a2 = newa12
+                if a1.self_play
+                    a1 = update_self_play!(a1, train_args, bps, SNR_db, iter)
+                end
+                if a2.self_play
+                    a2 = update_self_play!(a2, train_args, bps, SNR_db, iter)
+                end
+                newa12 = (a1, a2)
+                # Run partner model updates if enabled
+                a1, a2 = newa12
+                if a1.use_prtnr_model
+                    a1 = update_from_partner_model!(a1, train_args, bps, SNR_db, iter)
                 end
                 # Replace updated optimisers and agents in lists
                 optims[idx1] = newoptims[1]; optims[idx2] = newoptims[2]

@@ -48,6 +48,8 @@ agent_types:
     demod: none
     count: 1
     alt_kwargs: false
+    self_play: false
+    use_prtnr_model: false
   - mod: none
     demod: classic
     count: 1
@@ -78,4 +80,12 @@ train_kwargs:
   schedule:
     type: constant
     T_max: "$train_kwargs.num_iterations_train"
+  self_play:
+    lr: 0.01
+    lr_decay: 0.995
+    rounds: 1
+  partner_modeling:
+    lr: 0.01
+    warmup: 0
+    rounds: 1
   verbose: false

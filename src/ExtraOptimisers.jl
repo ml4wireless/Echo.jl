@@ -3,7 +3,7 @@ export Yogi, MADGrad, LDoG, Prodigy
 import Optimisers
 
 using Functors: fmap, isleaf
-using LinearAlgebra: norm
+using LinearAlgebra: norm, dot
 
 
 """
@@ -262,15 +262,13 @@ struct Prodigy{T} <: Optimisers.AbstractRule
     d_coef::T
     growth_rate::T
 end
-function Prodigy(η=1f0, β=(9f-1, 9.99f-1), β3=nothing, d_coef=1f0, weight_decay=0f0)
+function Prodigy(η=1f0, β=(9f-1, 9.99f-1), β3=nothing, d_coef=0.75f0, weight_decay=0f0, growth_rate=Inf)
     if β3 === nothing
         β3 = sqrt(β[2])
     end
     Prodigy{typeof(η)}(
-        eta=η, beta=β, beta3=β3, ϵ=typeof(η)(1e-8),
-        weight_decay=weight_decay, decouple=true,
-        use_bias_correction=false, safeguard_warmup=false,
-        d0=typeof(η)(1e-6), d_coef=d_coef, growth_rate=typeof(η)(Inf))
+        η, β, β3, typeof(η)(1e-8), weight_decay, true,
+        false, false, typeof(η)(1e-6), d_coef, typeof(η)(growth_rate))
 end
 
 # Prodigy state: x0, m, v, s, d, d_max, d_numerator, t
@@ -291,20 +289,20 @@ function Optimisers.apply!(o::Prodigy, state, x, dx)
 
     # Weight decay penalty: coupled
     if o.weight_decay > 0 && !o.decouple
-        @.. dx += o.weight_decay * x
+        Optimisers.@.. dx = dx + o.weight_decay * x
     end
 
     # Use d/d0 to avoid values that are too small
     d_numerator += (d / o.d0) * d_lr * dot(vec(dx), vec(x0 - x))
 
     # Adam EMA updates
-    @.. m = o.beta[1] * m + d * (one(eltype(x)) - o.beta[1]) * dx
-    @.. v = o.beta[2] * v + d * d * (one(eltype(x)) - o.beta[2]) * dx * dx
+    Optimisers.@.. m = o.beta[1] * m + d * (one(eltype(x)) - o.beta[1]) * dx
+    Optimisers.@.. v = o.beta[2] * v + d * d * (one(eltype(x)) - o.beta[2]) * dx * dx
 
     if o.safeguard_warmup
-        @.. s = o.beta3 * s + (d / o.d0) * d * dx
+        Optimisers.@.. s = o.beta3 * s + (d / o.d0) * d * dx
     else
-        @.. s = o.beta3 * s + (d / o.d0) * d_lr * dx
+        Optimisers.@.. s = o.beta3 * s + (d / o.d0) * d_lr * dx
     end
 
     d_denom = norm(s, 1)
@@ -313,22 +311,22 @@ function Optimisers.apply!(o::Prodigy, state, x, dx)
         return (x0, m, v, s, d, d_max, d_numerator, t + 1), zero(x)
     end
 
-    d_hat = d_coef * d_numerator / d_denom
+    d_hat = o.d_coef * d_numerator / d_denom
 
     # Clip d to growth rate
     if d == o.d0
         d = max(d, d_hat)
     end
     d_max = max(d_max, d_hat)
-    d = min(d_max, d * growth_rate)
+    d = min(d_max, d * o.growth_rate)
 
     # Calculate final update
-    dx′ = zeros(x)
+    dx′ = zero(x)
     if o.weight_decay > 0 && o.decouple
-        @.. dx′ -= x * o.weight_decay * d_lr
+        Optimisers.@.. dx′ = dx′ + x * o.weight_decay * d_lr
     end
-    denom = sqrt(v) + d * o.ϵ
-    @.. dx′ -= d_lr * m / denom
+    denom = @. sqrt(v) + d * o.ϵ
+    Optimisers.@.. dx′ = dx′ + d_lr * m / denom
 
     return (x0, m, v, s, d, d_max, d_numerator, t + 1), dx′
 end

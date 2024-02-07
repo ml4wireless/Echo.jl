@@ -37,10 +37,14 @@ agent_types:
     demod: neural
     count: 1
     alt_kwargs: false
+    self_play: false
+    use_prtnr_model: false
   - mod: neural
     demod: neural
     count: 1
     alt_kwargs: true
+    self_play: false
+    use_prtnr_model: false
 
 train_kwargs:
   meta:
@@ -67,4 +71,12 @@ train_kwargs:
   schedule:
     type: constant
     T_max: "$train_kwargs.num_iterations_train"
+  self_play:
+    lr: 0.01
+    lr_decay: 0.995
+    rounds: 1
+  partner_modeling:
+    lr: 0.01
+    warmup: 0
+    rounds: 1
   verbose: false

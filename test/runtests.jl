@@ -8,14 +8,19 @@ using Echo
 include("schedule_tests.jl")
 
 
-function run_converges(configfile, enable_self_play=false)
+function run_converges(configfile; enable_self_play=false)
     testname = uppercase(basename(configfile)[1:end - 4])
     if enable_self_play
         testname *= "-SP"
     end
     @info testname
     cfg = loadconfig(configfile)
-    cfg = @set cfg.train_kwargs.self_play.enable = enable_self_play
+    if cfg.agent_types[1].mod == "neural"
+        cfg = @set cfg.agent_types[1].self_play = enable_self_play
+    end
+    if cfg.agent_types[2].mod == "neural"
+        cfg = @set cfg.agent_types[2].self_play = enable_self_play
+    end
     ec = ExperimentConfig(cfg, "/tmp")
     results, _ = run_experiment(ec, save_results=false)
     bers = finalbers(results)
@@ -32,11 +37,13 @@ function run_meets_timing(configfile, maxtime)
     testname = uppercase(basename(configfile)[1:end - 4])
     @info testname
     cfg = loadconfig(configfile)
-    cfg = @set cfg.train_kwargs.num_iterations_train = 100
-    ec = ExperimentConfig(cfg, "/tmp")
     # Run once to compile
+    cfg = @set cfg.train_kwargs.num_iterations_train = 3
+    ec = ExperimentConfig(cfg, "/tmp")
     _ = run_experiment(ec, save_results=false)
     # Run again to time
+    cfg = @set cfg.train_kwargs.num_iterations_train = 100
+    ec = ExperimentConfig(cfg, "/tmp")
     t0 = time()
     _ = run_experiment(ec, save_results=false)
     t1 = time()
@@ -202,13 +209,14 @@ end
 
 function main(args)
     helpinfo = """
-julia $PROGRAM_FILE [-t] [-c] [-b] [-m] [-o] [-h] [-s]
+julia $PROGRAM_FILE [-t] [-c] [-b] [-m] [-o] [-h] [-s] [-S]
     -c to run convergence tests only
     -t to run timing tests only
     -b to run backprop tests only
     -m to run multiagent tests only
     -o to run optimizer tests only
     -s to run scheduler tests only
+    -S to run self-play tests only
     -h to print help
 """
 
@@ -265,4 +273,4 @@ julia $PROGRAM_FILE [-t] [-c] [-b] [-m] [-o] [-h] [-s]
     end
 end
 
-main(ARGS)
+# main(ARGS)
