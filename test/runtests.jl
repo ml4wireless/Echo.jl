@@ -8,18 +8,23 @@ using Echo
 include("schedule_tests.jl")
 
 
-function run_converges(configfile; enable_self_play=false)
+function run_converges(configfile; enable_self_play=false, enable_partner_modeling=false)
     testname = uppercase(basename(configfile)[1:end - 4])
     if enable_self_play
         testname *= "-SP"
+    end
+    if enable_partner_modeling
+        testname *= "-PM"
     end
     @info testname
     cfg = loadconfig(configfile)
     if cfg.agent_types[1].mod == "neural"
         cfg = @set cfg.agent_types[1].self_play = enable_self_play
+        cfg = @set cfg.agent_types[1].use_prtnr_model = enable_partner_modeling
     end
     if cfg.agent_types[2].mod == "neural"
         cfg = @set cfg.agent_types[2].self_play = enable_self_play
+        cfg = @set cfg.agent_types[2].use_prtnr_model = enable_partner_modeling
     end
     ec = ExperimentConfig(cfg, "/tmp")
     results, _ = run_experiment(ec, save_results=false)
@@ -205,19 +210,41 @@ function testselfplay(nnconf, ncconf, ncluconf)
 end
 
 
+function testpartnermodeling(nnconf, ncconf, ncluconf)
+    @testset "Partner-modeling" begin
+        @testset "NN partner-modeling" begin
+            for c in nnconf
+                @test run_converges(c, enable_partner_modeling=true)
+            end
+        end
+
+        @testset "NC partner-modeling" begin
+            for c in ncconf
+                @test run_converges(c, enable_partner_modeling=true)
+            end
+        end
+
+        @testset "NClu partner-modeling" begin
+            for c in ncluconf
+                @test run_converges(c, enable_partner_modeling=true)
+            end
+        end
+    end
+end
 
 
 function main(args)
     helpinfo = """
-julia $PROGRAM_FILE [-t] [-c] [-b] [-m] [-o] [-h] [-s] [-S]
-    -c to run convergence tests only
-    -t to run timing tests only
+julia $PROGRAM_FILE [-h] [-b] [-c] [-m] [-o] [-p] [-s] [-S] [-t]
+    -h to print help
     -b to run backprop tests only
+    -c to run convergence tests only
     -m to run multiagent tests only
     -o to run optimizer tests only
+    -p to run partner-modeling tests only
     -s to run scheduler tests only
     -S to run self-play tests only
-    -h to print help
+    -t to run timing tests only
 """
 
     # Uncomment to disable progressbar printouts
@@ -238,7 +265,7 @@ julia $PROGRAM_FILE [-t] [-c] [-b] [-m] [-o] [-h] [-s] [-S]
 
     testsets = Dict("-c" => "convergence", "-b" => "backprop", "-m" => "multiagent",
                     "-o" => "optimisers", "-t" => "timing", "-s" => "schedules",
-                    "-S" => "self-play",)
+                    "-S" => "self-play", "-p" => "partner-modeling")
     @testset "All tests" begin
         if length(args) > 0
             print("Running ")
@@ -260,6 +287,8 @@ julia $PROGRAM_FILE [-t] [-c] [-b] [-m] [-o] [-h] [-s] [-S]
             testschedules(optconf[1])
         elseif "-S" ∈ args
             testselfplay(nnconf, ncconf, ncluconf)
+        elseif "-p" ∈ args
+            testpartnermodeling(nnconf, ncconf, ncluconf)
         else
             testtiming(nnconf, ncconf, ncluconf)
             testconvergence(nnconf, ncconf, ncluconf)
@@ -268,6 +297,7 @@ julia $PROGRAM_FILE [-t] [-c] [-b] [-m] [-o] [-h] [-s] [-S]
             testoptimizers(optconf)
             testschedules(optconf[1])
             testselfplay(nnconf, ncconf, ncluconf)
+            testpartnermodeling(nnconf, ncconf, ncluconf)
         end
     # End all tests
     end

@@ -26,6 +26,12 @@ neural_demod_kwargs:
 
 neural_demod_2_kwargs: "$neural_demod_kwargs"
 
+partner_model_kwargs:
+  bits_per_symbol: "$bps"
+  activation_fn_hidden: elu
+  hidden_layers: [40,40]
+  lr: 1e-2
+
 classic_agent_sampler_kwargs:
   bits_per_symbol: "$bps"
   min_rotation_deg: 30.0

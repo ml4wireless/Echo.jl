@@ -12,6 +12,7 @@ using StatsBase: sample
 using TensorBoardLogger
 
 using ..Agents
+using ..DataUtils: get_random_data_sb
 using ..Evaluators
 using ..FluxUtils
 using ..LookupTableUtils
@@ -129,49 +130,52 @@ end
 """
 Partner model update with cross-entropy loss (KL-divergence for hard decision feedback)
 """
-function update_partner_model!(agent, train_args, res::RTResults, agent_idx::Int, verbose=false)
+function update_partner_model!(agent, res::RTResults, agent_idx::Int, verbose=false)
     """
     Update agent with partner model via SGD(lr=η) for round-trip, agent number `agent_idx`"
     """
-    η = train_args.partner_modeling.lr * train_args.partner_modeling.lr_decay ^ (idx - 1)
+    η = agent.prtnr_model.lr
     o = Optimisers.setup(Optimisers.Descent(η), agent.prtnr_model)
     loss = 0
     # Run forward pass and update
     grads = Flux.gradient(agent.prtnr_model) do prtnr_model
         if agent_idx == 1
             target = symbols_to_onehot(res.d1_rt_symbs)
-            logits = prtner_model(res.m1_actions)
+            logits = prtnr_model(res.m1_actions)
         else
             target = symbols_to_onehot(res.d2_rt_symbs)
             logits = prtnr_model(res.m2_actions)
         end
-        loss = crossentropy_loss(logits=logits, target=target)
+        loss = loss_crossentropy(logits=logits, target=target)
+        loss
     end
     if verbose
         println("Partner model loss: $(loss)")
     end
     _, newprtnr_model = Optimisers.update!(o, agent.prtnr_model, grads[1])
-    Agent(agent, prtnr_model=newprtnr_model)
+    Agent(agent, prtnr_model=newprtnr_model), loss
 end
 
-function update_partner_model!(agent, train_args, res::HTResults, verbose=false)
+function update_partner_model!(agent, res::HTResults, verbose=false)
     """
     Update agent with partner model via SGD(lr=η) for half-trip"
     """
-    η = train_args.partner_modeling.lr * train_args.partner_modeling.lr_decay ^ (idx - 1)
+    η = agent.prtnr_model.lr
     o = Optimisers.setup(Optimisers.Descent(η), agent.prtnr_model)
     loss = 0
     # Run forward pass and update
     grads = Flux.gradient(agent.prtnr_model) do prtnr_model
         target = symbols_to_onehot(res.d2_symbs)
         logits = prtnr_model(res.m1_actions)
-        loss = crossentropy_loss(logits=logits, target=target)
+        loss = loss_crossentropy(logits=logits, target=target)
+        loss
     end
     if verbose
         println("Partner model loss: $(loss)")
     end
     _, newprtnr_model = Optimisers.update!(o, agent.prtnr_model, grads[1])
-    Agent(agent, prtnr_model=newprtnr_model)
+    agent = Agent(agent, prtnr_model=newprtnr_model)
+    (; agent, loss)
 end
 
 
@@ -187,6 +191,7 @@ function update_gradient_passing!(simulator, eavesdroppers, SNR_db,
         res = simulate(simulator, SNR_db, explore=true)
         target = symbols_to_onehot(res.preamble)
         loss = loss_crossentropy(logits=res.d2_logits, target=target)
+        loss
     end
     if verbose
         println("loss: $(loss)")
@@ -223,13 +228,16 @@ function update_loss_passing!(simulator, eavesdroppers, SNR_db,
         println("m1 loss: $(m1_loss), d2 loss: $(d2_loss)")
     end
     # Update the partner models based on this simulation
-    if optim_models[1].use_prtnr_model
-        optim_models[1] = update_partner_model!(optim_models[1], train_args, res, verbose)
+    a1, a2 = optim_models
+    pm_loss = 0
+    if a1.use_prtnr_model
+        a1, pm_loss = update_partner_model!(a1, res, verbose)
     end  # Only agent 1 (mod)'s partner model can be updated for LP
+    optim_models = (a1, a2)
     # Update the mod and demod models
     # Pass grads[1] because we pass in agents as first arg to gradient()
     optims, optim_models = apply_model_updates!(optims, optim_models, grads[1])
-    (; optims, optim_models, m1_loss, d2_loss)
+    (; optims, optim_models, m1_loss, d2_loss, pm_loss)
 end
 
 
@@ -267,16 +275,19 @@ function update_shared_preamble!(simulator, eavesdroppers, SNR_db,
         println("m1 loss: $(m1_loss), m2 loss: $(m2_loss), d1 loss: $(d1_loss), d2 loss: $(d2_loss)")
     end
     # Update the partner models based on this simulation
-    if optim_models[1].use_prtnr_model
-        optim_models[1] = update_partner_model!(optim_models[1], train_args, res, 1, verbose)
+    a1, a2 = optim_models
+    pm1_loss = pm2_loss = 0
+    if a1.use_prtnr_model
+        a1, pm1_loss = update_partner_model!(a1, res, 1, verbose)
     end
-    if optim_models[2].use_prtnr_model
-        optim_models[2] = update_partner_model!(optim_models[2], train_args, res, 2, verbose)
+    if a2.use_prtnr_model
+        a2, pm2_loss = update_partner_model!(a2, res, 2, verbose)
     end
+    optim_models = (a1, a2)
     # Update the mod and demod models
     # Pass grads[1] because we pass in agents as first arg to gradient()
     optims, optim_models = apply_model_updates!(optims, optim_models, grads[1])
-    (; optims, optim_models, m1_loss, m2_loss, d1_loss, d2_loss)
+    (; optims, optim_models, m1_loss, m2_loss, d1_loss, d2_loss, pm1_loss, pm2_loss)
 end
 
 
@@ -315,16 +326,19 @@ function update_private_preamble!(simulator, eavesdroppers, SNR_db,
         println("m1 loss: $(m1_loss), m2 loss: $(m2_loss), d1 loss: $(d1_loss), d2 loss: $(d2_loss)")
     end
     # Update the partner models based on this simulation
-    if optim_models[1].use_prtnr_model
-        optim_models[1] = update_partner_model!(optim_models[1], train_args, res, 1, verbose)
+    a1, a2 = optim_models
+    pm1_loss = pm2_loss = 0
+    if a1.use_prtnr_model
+        a1, pm1_loss = update_partner_model!(a1, res, 1, verbose)
     end
-    if optim_models[2].use_prtnr_model
-        optim_models[2] = update_partner_model!(optim_models[2], train_args, res, 2, verbose)
+    if a2.use_prtnr_model
+        a2, pm2_loss = update_partner_model!(a2, res, 2, verbose)
     end
+    optim_models = (a1, a2)
     # Update the mod and demod models
     # Pass grads[1] because we pass in agents as first arg to gradient()
     optims, optim_models = apply_model_updates!(optims, optim_models, grads[1])
-    (; optims, optim_models, m1_loss, m2_loss, d1_loss, d2_loss)
+    (; optims, optim_models, m1_loss, m2_loss, d1_loss, d2_loss, pm1_loss, pm2_loss)
 end
 
 
@@ -354,12 +368,12 @@ function update_self_play!(agent, train_args, bps, SNR_db, iter=1)
 end
 
 
-function update_from_partner_model!(agent, train_args, bps, SNR_db, iter=1)
+function update_from_partner_model!(agent, train_args, iter=1)
     """
     Update agent with gradient-passing and partner model via SGD(lr=η)"
     """
     newmod = agent.mod
-    η = train_args.partner_modeling.lr * train_args.partner_modeling.lr_decay ^ (iter - 1)
+    η = train_args.partner_modeling.lr
     o = Optimisers.setup(Optimisers.Descent(η), agent.mod)
     cuda = iscuda(agent)
     bps = agent.mod.bits_per_symbol
@@ -371,7 +385,7 @@ function update_from_partner_model!(agent, train_args, bps, SNR_db, iter=1)
         grads = Flux.gradient(newmod) do mod
             actions = modulate(mod, preamble, explore=false)
             logits = agent.prtnr_model(actions)
-            crossentropy_loss(logits=logits, target=target)
+            loss_crossentropy(logits=logits, target=target)
         end
         o, newmod = Optimisers.update!(o, newmod, grads[1])
     end
@@ -523,9 +537,13 @@ function train!(trainer::EchoTrainer, train_args, logdir="./tensorboard_logs")
                 newa12 = (a1, a2)
                 # Run partner model updates if enabled
                 a1, a2 = newa12
-                if a1.use_prtnr_model
-                    a1 = update_from_partner_model!(a1, train_args, bps, SNR_db, iter)
+                if a1.use_prtnr_model && train_args.partner_modeling.warmup < iter
+                    a1 = update_from_partner_model!(a1, train_args, iter)
                 end
+                if a2.use_prtnr_model && train_args.partner_modeling.warmup < iter
+                    a2 = update_from_partner_model!(a2, train_args, iter)
+                end
+                newa12 = (a1, a2)
                 # Replace updated optimisers and agents in lists
                 optims[idx1] = newoptims[1]; optims[idx2] = newoptims[2]
                 trainer.agents[idx1] = newa12[1]; trainer.agents[idx2] = newa12[2]

@@ -148,6 +148,9 @@ function AgentSampler(;bits_per_symbol, mod_class, demod_class, prtnr_model_clas
                        self_play=false, use_prtnr_model=false)
     MC = mod_class === nothing ? Modulator : mod_class
     DC = demod_class === nothing ? Demodulator : demod_class
+    if prtnr_model_class !== nothing
+        DC = prtnr_model_class
+    end
     AgentSampler{MC, DC}(bits_per_symbol, mod_class, demod_class, prtnr_model_class, mod_kwargs, demod_kwargs, prtnr_model_kwargs,
                          min_rotation_deg, max_rotation_deg, avg_power, self_play, use_prtnr_model)
 end

@@ -15,6 +15,8 @@ using ..FluxUtils
 using ..ModulationModels
 using ..Agents
 
+using Infiltrator
+
 import Base.show
 
 

@@ -27,6 +27,8 @@ using ..ModulationUtils
 using ..DataUtils
 using ..FluxUtils
 
+using Infiltrator
+
 import Random.rand
 import Distributions.logpdf
 
@@ -315,7 +317,7 @@ mutable struct NeuralModPolicy{M <: AbstractMatrix{Float32}, V <: AbstractVector
     stds::V
 end
 
-# Flux.@functor NeuralModPolicy (means, stds)
+Flux.@functor NeuralModPolicy (means, stds)
 NeuralModPolicy() = NeuralModPolicy(M32(undef, 0, 0), V32(undef, 0))
 Random.rand(rng::AbstractRNG, policy::NeuralModPolicy{M32, V32}) = randn(rng, Float32, size(policy)) .* policy.stds .+ policy.means
 Random.rand(policy::NeuralModPolicy{CM32, CV32}) = curandn(Float32, size(policy)) .* policy.stds .+ policy.means
