@@ -13,8 +13,8 @@ neural_mod_kwargs:
     max: 1.0
     min: -3.0
   lr_dict:
-    mu: 1
-    std: 1
+    mu: 0.01
+    std: 0.01
 
 neural_mod_2_kwargs:
   bits_per_symbol: "$bps"
@@ -26,14 +26,14 @@ neural_mod_2_kwargs:
     max: 1.0
     min: -3.0
   lr_dict:
-    mu: 1
-    std: 1
+    mu: 0.01
+    std: 0.01
 
 neural_demod_kwargs:
   bits_per_symbol: "$bps"
   activation_fn_hidden: elu
   hidden_layers: [20]
-  lr: 1
+  lr: 0.01
 
 neural_demod_2_kwargs: "$neural_demod_kwargs"
 
@@ -85,3 +85,12 @@ train_kwargs:
     type: constant
     T_max: "$train_kwargs.num_iterations_train"
   verbose: false
+  self_play:
+    lr: 0.01
+    lr_decay: 0.995
+    rounds: 1
+  partner_modeling:
+    lr: 0.01
+    lr_decay: 0.995
+    rounds: 1
+    warmup: 0

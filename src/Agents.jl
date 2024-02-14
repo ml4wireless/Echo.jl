@@ -268,18 +268,22 @@ end
 
 """
 Trainable fields for Agent
-Partner models are trained separately from mod and demod, so not included here.
 """
 function Flux.trainable(a::Agent)
+    local totrain
     if isneural(a.mod) && isneural(a.demod)
-        return (;mod=a.mod, demod=a.demod)
+        totrain = (;mod=a.mod, demod=a.demod)
     elseif isneural(a.mod)
-        return (;mod=a.mod)
+        totrain = (;mod=a.mod)
     elseif isneural(a.demod)
-        return (;demod=a.demod)
+        totrain = (;demod=a.demod)
     else
-        return NamedTuple()
+        totrain = NamedTuple()
     end
+    if hasfield(typeof(a), :prtnr_model) && isneural(a.prtnr_model)
+        totrain = (;totrain..., (;prtnr_model=a.prtnr_model,)...)
+    end
+    totrain
 end
 
 Base.show(io::IO, a::Agent) = print(io, Crayon(bold=true, foreground=:green), typeof(a),

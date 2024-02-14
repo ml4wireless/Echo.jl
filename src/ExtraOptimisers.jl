@@ -123,7 +123,7 @@ end
                 As discussed in the paper, this value should be small enough to ensure that the
                 first update step will be small enough to not cause the model to diverge.
                 Suggested value is 1f-6, unless the model uses batch-normalization,
-                in which case the suggested value is 1f-4. (default: 1f-6).
+                in which case the suggested value is 1f-4. (default: 1f-4).
 - Learning rate (`c`): Implicit learning rate referred to as c in the paper. Changing this
                        from 1.0 is not recommended, and only the range 0.5-1.5 is reliable.
 - Weight decay (`weight_decay`): L2 penalty, weight_decay * x_t is added directly to the gradient.
@@ -262,9 +262,14 @@ struct Prodigy{T} <: Optimisers.AbstractRule
     d_coef::T
     growth_rate::T
 end
-function Prodigy(η=1f0, β=(9f-1, 9.99f-1), β3=nothing, d_coef=0.75f0, weight_decay=0f0, growth_rate=Inf)
+function Prodigy(η=1f0, β=(9f-1, 9.99f-1), β3=nothing, d_coef=1f0, weight_decay=0f0, growth_rate=Inf)
     if β3 === nothing
         β3 = sqrt(β[2])
+    end
+    if η != 1f0
+        @warn "Assuming you meant to set d_coef instead of η, which should stay 1.0" η d_coef
+        d_coef = η
+        η = 1f0
     end
     Prodigy{typeof(η)}(
         η, β, β3, typeof(η)(1e-8), weight_decay, true,

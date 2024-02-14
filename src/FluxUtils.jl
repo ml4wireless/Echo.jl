@@ -58,10 +58,10 @@ Initialize optimisers for neural models.
 # Returns
 - `optims`: Vector of optimiser states for every trainable model
 """
-function get_optimisers(agents, optimiser=Optimisers.Adam)
+function get_optimisers(agents, optimiser=Optimisers.AdamW)
     optims = []
     for a in agents
-        # Don't worry about setting lr here, it will be adjusted for mod & demod below
+        # Don't worry about setting lr here, it will be adjusted individually below
         state = Optimisers.setup(optimiser(), a)
         Optimisers.freeze!(state)
         if hasfield(typeof(a.mod), :μ)
@@ -73,6 +73,11 @@ function get_optimisers(agents, optimiser=Optimisers.Adam)
         if hasfield(typeof(a.demod), :net)
             Optimisers.adjust!(state.demod.net, a.demod.lr)
             Optimisers.thaw!(state.demod.net)
+        end
+        # Partner model will always be a NeuralDemod if it exists
+        if hasfield(typeof(a), :prtnr_model) && a.prtnr_model !== nothing
+            Optimisers.adjust!(state.prtnr_model.net, a.prtnr_model.lr)
+            Optimisers.thaw!(state.prtnr_model.net)
         end
         push!(optims, state)
     end

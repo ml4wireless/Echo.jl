@@ -303,4 +303,8 @@ julia $PROGRAM_FILE [-h] [-b] [-c] [-m] [-o] [-p] [-s] [-S] [-t]
     end
 end
 
-# main(ARGS)
+if !isinteractive()
+    main(ARGS)
+end
+
+
