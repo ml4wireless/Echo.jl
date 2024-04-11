@@ -9,6 +9,8 @@ export complex_to_cartesian, cartesian_to_complex
 
 using Random
 using CUDA
+using Memoization
+using ChainRules: ignore_derivatives
 
 
 """
@@ -166,9 +168,13 @@ end
 Generate all unique symbols for bit_per_symbol
 shape [bits_per_symbol x 2^bits_per_symbol] --> 2^bits_per_symbol symbols
 """
-function get_all_unique_symbols(bits_per_symbol)
-    all_symbs = collect(0:2^bits_per_symbol-1)
-    integers_to_symbols(all_symbs, bits_per_symbol)
+# @memoize
+function get_all_unique_symbols(bits_per_symbol; cuda::Bool=false)
+    ignore_derivatives() do
+        all_symbs = collect(0:2^bits_per_symbol-1)
+        data = integers_to_symbols(all_symbs, bits_per_symbol)
+        cuda ? cu(data) : data
+    end
 end
 
 

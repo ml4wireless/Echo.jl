@@ -20,8 +20,8 @@ using Infiltrator
 
 
 MaybeCMod = Union{ClassicMod, Nothing}
-MaybeNMod = Union{NeuralMod, Nothing}
-MaybeMod = Union{NeuralMod, ClassicMod, Nothing}
+MaybeNMod = Union{NeuralMod, GNNMod, Nothing}
+MaybeMod = Union{NeuralMod, GNNMod, ClassicMod, Nothing}
 MaybeCDMod = Union{ClassicDemod, Nothing}
 MaybeNDMod = Union{NeuralDemod, Nothing}
 MaybeDMod = Union{NeuralDemod, ClassicDemod, ClusteringDemod, Nothing}

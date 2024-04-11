@@ -26,6 +26,7 @@ import Base.show
 agent_type_map = Dict(
     "neuraldemod" => NeuralDemod,
     "neuralmod" => NeuralMod,
+    "gnnmod" => GNNMod,
     "classicdemod" => ClassicDemod,
     "classicmod" => ClassicMod,
     "clusterdemod" => ClusteringDemod,

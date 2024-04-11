@@ -192,7 +192,7 @@ If `sampled` > 0, instead of std_dev ellipses, sample a cloud of size `sampled` 
 """
 @userplot ModConstellation
 @recipe function f(mc::ModConstellation; labeled=true, sampled=-1)
-    if !(isa(mc.args[1], NeuralMod) || isa(mc.args[1], ClassicMod))
+    if !ismod(mc.args[1])
         error("Expected a NeuralMod or ClassicMod for constellation plot")
     end
     mod = mc.args[1]
@@ -447,18 +447,20 @@ If `bps_ref` is true, include a classic reference curve.
     end
 end
 
-function plot_bers_train(results; filename="training_bers.png", show=true)
+function plot_bers_train(results; filename="training_bers.png", title="", show=true)
     epochs = sort(collect(keys(results)))
     bers = reduce(hcat, results[e][:ber][:, 5] for e in epochs)
     bers[bers .== 0.] .= NaN
+    bers[bers .== -1.] .= NaN
     p = plot(epochs, bers', labels=["ht1" "ht2" "rt"],
          yscale=:log10,
          yticks=(10. .^ [0, -1, -2, -3, -4, -5]),
          xlabel="Epoch",
          ylabel="BER",
          linewidth=[1 1 2],
+         title=title,
          )
-    plot!([0, maximum(epochs)], [0.5, 0.5], linestyle=:dot, color=:grey, label="BER = 1/2")
+    plot!(p, [0, maximum(epochs)], [0.5, 0.5], linestyle=:dot, color=:grey, label="BER = 1/2")
     Plots.savefig(p, filename)
     @info "Saved train BER plot" filename
     if show
@@ -468,8 +470,9 @@ function plot_bers_train(results; filename="training_bers.png", show=true)
     end
 end
 
-function plot_bers_snr(bers; bits_per_symbol=2, filename="final_bers.png", roundtrip=true, show=true)
+function plot_bers_snr(bers; bits_per_symbol=2, filename="final_bers.png", title="", roundtrip=true, show=true)
     p = berplot(bers, bits_per_symbol=bits_per_symbol, roundtrip=roundtrip)
+    plot!(p, title=title)
     Plots.savefig(p, filename)
     @info "Saved final BER plot" filename
     if show

@@ -404,7 +404,7 @@ end
 # Helpers for train!()
 #############################################################
 _ensemble_train_bers(bers) = mean(bers, dims=3)[:, 5]
-_safe_diversity(a) = isneural(a.mod) ? loss_diversity(modulate(a.mod, a.mod.all_unique_symbols, explore=false)) : 0f0
+_safe_diversity(a) = isneural(a.mod) ? loss_diversity(constellation(a.mod)) : 0f0
 _diversity_losses(agents) = [_safe_diversity(a) for a in agents]
 
 """

@@ -1,8 +1,9 @@
 module ModulationModels
 export ClassicMod, ClassicDemod
 export NeuralMod, NeuralDemod
+export GNNMod
 export ClusteringDemod
-export modulate, demodulate, isclassic, isclustering, isneural, ismod, iscuda, loss
+export modulate, demodulate, constellation, isclassic, isclustering, isneural, ismod, iscuda, loss
 export get_kwargs, Modulator, Demodulator
 
 
@@ -16,6 +17,8 @@ using Crayons
 using Distributions
 using Flux
 using Flux: unsqueeze
+using GraphNeuralNetworks: GNNGraph, MEGNetConv
+using IterTools: product
 using Logging
 using Printf
 using Random
@@ -63,6 +66,7 @@ end
 ##################################################################################
 abstract type Modulator end
 abstract type Demodulator end
+
 
 ##################################################################################
 # Classic Modulator
@@ -138,6 +142,12 @@ function (m::ClassicMod)(message)
     norm_map = normalize_constellation(m, rmap)
     return norm_map[:, inds .+ 1]
 end
+
+
+"""
+Return the constellation points of the modulator
+"""
+constellation(mod::ClassicMod) = mod(mod.all_unique_symbols)
 
 
 """
@@ -389,7 +399,7 @@ function NeuralMod(;bits_per_symbol,
     if log_std === nothing
         log_std = Vector{Float32}([log_std_dict.initial, log_std_dict.initial])
     end
-    all_unique_symbols = integers_to_symbols(0:(2^bits_per_symbol-1), bits_per_symbol)
+    all_unique_symbols = get_all_unique_symbols(bits_per_symbol)
     NeuralMod(bits_per_symbol, hidden_layers,
               restrict_energy, activation_fn_hidden,
               activation_fn_output, avg_power,
@@ -503,6 +513,12 @@ function (m::NeuralMod)(symbols::AbstractArray{Float32})
     end
     means
 end
+
+
+"""
+Return the constellation points of the modulator
+"""
+constellation(mod::NeuralMod) = mod(2 .* Float32.(mod.all_unique_symbols) .- 1)
 
 
 """
@@ -646,10 +662,18 @@ end
 
 
 ##################################################################################
+# Graph Neural Network Modulator
+##################################################################################
+include("gnn_mod.jl")
+
+
+##################################################################################
 # Generic Mod/Demod constructors
 ##################################################################################
 function Modulator(;kwargs...)
-    if :hidden_layers in keys(kwargs)
+    if :layer_dims in keys(kwargs)
+        mod = GNNMod(;kwargs...)
+    elseif :hidden_layers in keys(kwargs)
         mod = NeuralMod(;kwargs...)
     else
         mod = ClassicMod(;kwargs...)
@@ -682,14 +706,17 @@ isclustering(::Any) = false
 
 isneural(::NeuralMod) = true
 isneural(::NeuralDemod) = true
+isneural(::GNNMod) = true
 isneural(::Any) = false
 
 ismod(::ClassicMod) = true
 ismod(::NeuralMod) = true
+ismod(::GNNMod) = true
 ismod(::Any) = false
 
 iscuda(m::ClassicMod) = isa(m.rotation, CuArray)
 iscuda(m::NeuralMod) = isa(m.log_std, CuArray)
+iscuda(m::GNNMod) = isa(m.log_std, CuArray)
 iscuda(d::ClassicDemod) = isa(d.rotation, CuArray)
 iscuda(d::NeuralDemod) = isa(d.net[1].weight, CuArray)
 iscuda(::ClusteringDemod) = false
