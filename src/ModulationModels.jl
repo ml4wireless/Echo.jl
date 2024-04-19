@@ -210,9 +210,12 @@ function (d::ClassicDemod)(iq)
         rmatrix = gpu(rmatrix)
     end
     rmap = rmatrix * d.symbol_map
-    dist = sum(abs2.(unsqueeze(iq, 2) .- rmap), dims=1)
-    dist = dropdims(dist, dims=1)
-    logits = -dist
+    iq = unsqueeze(iq, 2)
+    # Logits are negative squared error w.r.t. constellation points
+    logits = @. -abs2(iq[1, :, :] - rmap[1, :]) - abs2(iq[2, :, :] - rmap[2, :])
+    # dist = sum(abs2.(unsqueeze(iq, 2) .- rmap), dims=1)
+    # dist = dropdims(dist, dims=1)
+    # logits = -dist
     # labels_si_g = getindex.(argmax(dist, dims=1), 1)
     logits
 end

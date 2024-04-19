@@ -6,7 +6,6 @@ using Flux
 using LinearAlgebra
 using Plots
 using ProgressMeter
-using Profile
 plotlyjs()
 
 
@@ -64,7 +63,7 @@ SNRs = Float32.([10])
 for bps in [10]
     println("BPS $bps")
     for i in eachindex(SNRs)
-        @profile sim_ber_ser_rt(bps, SNRs[i], 10_000_000)
+        @profview sim_ber_ser_rt(bps, SNRs[i], 10_000_000)
 
     end
 end
