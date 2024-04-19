@@ -1,9 +1,11 @@
 module ModulationUtils
-export get_gray_code, gray_coded_IQ, get_mqam_symbol, get_symbol_map
-export calc_EbN0, calc_N0
+export get_gray_code, gray_coded_IQ, get_mqam_symbol, get_symbol_map, generate_symbol_map
+export calc_EbN0, calc_N0, predict_classic_ber, predict_classic_ser, predict_classic_ber_roundtrip, predict_classic_ser_roundtrip
 export demodulate_soft, demodulate_hard
 
 using ..DataUtils
+using Distributions: Normal, ccdf
+using SpecialFunctions: erfc
 
 
 """
@@ -42,9 +44,9 @@ function get_gray_code(n)
             n -= 1
         end
     end
-    g_inverse = zeros(Int8, length(g))
+    g_inverse = zeros(Int16, length(g))
     for (i, gi) in enumerate(g)
-        g_inverse[parse(Int8, gi, base=2) + 1] = i - 1
+        g_inverse[parse(Int16, gi, base=2) + 1] = i - 1
     end
     g_inverse
 end
@@ -169,9 +171,18 @@ symbol_maps[6] = permutedims(
      [0.4629100498862757 0.1543033499620919];    [0.4629100498862757 0.4629100498862757]],
     (2, 1))
 
+function generate_symbol_map(bits_per_symbol)::Matrix{Float32}
+    gcode = get_gray_code(bits_per_symbol)
+    symbs_complex = [get_mqam_symbol(i, 2 ^ bits_per_symbol, gcode) for i in 0:(2 ^ bits_per_symbol - 1)]
+    symbs_cartesian = permutedims(hcat(real(symbs_complex), imag(symbs_complex)), (2, 1))
+    symbs_cartesian
+end
 
 function get_symbol_map(bits_per_symbol)::Matrix{Float32}
-    return symbol_maps[bits_per_symbol]
+    if bits_per_symbol ∉ keys(symbol_maps)
+        symbol_maps[bits_per_symbol] = generate_symbol_map(bits_per_symbol)
+    end
+    symbol_maps[bits_per_symbol]
 end
 
 
@@ -234,6 +245,90 @@ function demodulate_hard(demod, iq)
     labels_sb_g = integers_to_symbols(labels_si_g, demod.bits_per_symbol)
     labels_sb_g
 end
+
+
+"""
+    `ser = predict_classic_ser(bits_per_symbol, SNR_db)`
+
+Predicts the theoretical symbol error rate for a classic square constellation at `SNR_db`
+From https://dsplog.com/2012/01/01/symbol-error-rate-16qam-64qam-256qam
+"""
+function predict_classic_ser(bits_per_symbol, SNR_db)::Float32
+    @assert (iseven(bits_per_symbol) || bits_per_symbol == 1) "Can only calculate SER for square constellations (bps=1,2,4,...)"
+    N0 = get_N0(SNR_db, 1)
+    if bits_per_symbol == 1
+        p_ser = ccdf(Normal(0, sqrt(N0 / 2)), 1)
+        return p_ser
+    end
+
+    M = 2 ^ bits_per_symbol
+    k = 1 / sqrt(2 * (M - 1) / 3)
+    p_ser = 2 * (1 - 1 / sqrt(M)) * erfc(k / sqrt(N0)) - (1 - 2 / sqrt(M) + 1 / M) * erfc(k / sqrt(N0)) ^ 2
+    p_ser
+end
+
+
+"""
+    `ber = predict_classic_ber(bits_per_symbol, SNR_db)`
+
+Predicts the theoretical bit error rate for a gray coded classic constellation at `SNR_db`
+From Yoon, Cho, Lee, "Bit Error Probability of M-ary Quadrature Amplitude Modulation". IEEE VTS Fall VTC2000
+"""
+function predict_classic_ber(bits_per_symbol, SNR_db)::Float32
+    @assert (iseven(bits_per_symbol) || bits_per_symbol == 1) "Can only calculate BER for square constellations (bps=1,2,4,...)"
+    N0 = get_N0(SNR_db, 1)
+    std = sqrt(N0 / 2)
+    if bits_per_symbol == 1
+        pb = ccdf(Normal(0, std), 1)
+        return pb
+    end
+
+    M = 2 ^ bits_per_symbol
+    sqrtM = sqrt(M)
+    Eb = 1 / bits_per_symbol
+    r = Eb / N0
+
+    function _pb_k(k)
+        if k == 1
+            pb1 = sum(erfc((2*j + 1) * sqrt((3 * log2(M) * r) / (2 * (M - 1)))) for j in 0:(sqrtM / 2 - 1))
+            return pb1 / sqrtM
+        end
+        pbk = sum((-1) ^ floor(j * 2 ^ (k-1) / sqrtM) * (2 ^ (k-1) - floor(j * 2 ^ (k-1) / sqrtM + 0.5)) *
+                  erfc((2 * j + 1) * sqrt((3 * log2(M) * r) / (2 * (M - 1))))
+                  for j in 0:((1 - 2 ^ -k) * sqrtM - 1))
+        pbk / sqrtM
+    end
+
+    pb = 1 / log2(sqrtM) * sum(_pb_k(k) for k in 1:log2(sqrtM))
+    pb
+end
+
+
+"""
+    `ber = predict_classic_ber_roundtrip(bits_per_symbol, SNR_db)`
+
+Predicts the theoretical bit error rate for a gray coded classic constellation at `SNR_db` for a roundtrip
+P(error) = P(error, 1st halftrip) + P(error, 2nd halftrip) - P(error, 1st halftrip & 2nd halftrip)
+"""
+function predict_classic_ber_roundtrip(bits_per_symbol, SNR_db)::Float32
+    p_ht = predict_classic_ber(bits_per_symbol, SNR_db)
+    return 2 * p_ht - p_ht ^ 2
+end
+
+
+"""
+    `ber = predict_classic_ser_roundtrip(bits_per_symbol, SNR_db)`
+
+Predicts the theoretical symbol error rate for a classic square constellation at `SNR_db` for a roundtrip
+P(error) = P(error, 1st halftrip) + P(error, 2nd halftrip) - 1/4 P(error, 1st halftrip & 2nd halftrip)
+If an error occurs during ht1, w.p. ~1/4 it will be reversed during ht2, assuming SNR is high enough that
+double-bit errors are unlikely.
+"""
+function predict_classic_ser_roundtrip(bits_per_symbol, SNR_db)::Float32
+    p_ht = predict_classic_ser(bits_per_symbol, SNR_db)
+    return 2 * p_ht - 1/4 * p_ht ^ 2
+end
+
 
 
 end

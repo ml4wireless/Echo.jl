@@ -12,7 +12,7 @@ using Random
 import Random.rand
 using Flux
 using Flux: @functor
-import Flux.trainable
+import Flux.trainable, Flux.trainmode!, Flux.testmode!
 import Base.show
 
 using Infiltrator
@@ -286,11 +286,48 @@ function Flux.trainable(a::Agent)
     totrain
 end
 
+
+"""
+`trainmode!` for Dropout/Batchnorm layers in agents
+"""
+function Flux.trainmode!(a::Agent)
+    if isneural(a.mod)
+        Flux.trainmode!(a.mod)
+    end
+    if isneural(a.demod)
+        Flux.trainmode!(a.demod)
+    end
+end
+
+
+"""
+`testmode!` for Dropout/Batchnorm layers in agents
+"""
+function Flux.testmode!(a::Agent)
+    if isneural(a.mod)
+        Flux.testmode!(a.mod)
+    end
+    if isneural(a.demod)
+        Flux.testmode!(a.demod)
+    end
+end
+
+
 Base.show(io::IO, a::Agent) = print(io, Crayon(bold=true, foreground=:green), typeof(a),
                                     Crayon(reset=true), "(", a.mod, ", ", a.demod, ", ",
                                     a.prtnr_model, a.self_play ? ", SP" : "",
                                     a.use_prtnr_model ? ", PM" : "", ")")
 
+Base.show(io::IO, a::ClassicAgent) = print(io, Crayon(bold=true, foreground=:green), typeof(a),
+                                           Crayon(reset=true), "(", a.mod, ", ", a.demod, ", ",
+                                           a.self_play ? ", SP" : "",
+                                           a.use_prtnr_model ? ", PM" : "", ")")
+
+"""
+    `iscuda(a)`
+
+Returns true if the mod or demod of `a` have CUDA data
+"""
 iscuda(a::Agent) = iscuda(a.mod) || iscuda(a.demod)
 
 

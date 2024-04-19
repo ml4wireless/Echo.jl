@@ -470,7 +470,18 @@ function plot_bers_train(results; filename="training_bers.png", title="", show=t
     end
 end
 
-function plot_bers_snr(bers; bits_per_symbol=2, filename="final_bers.png", title="", roundtrip=true, show=true)
+
+"""
+    `p = plot_bers_snr(bers::AbstractArray; bits_per_symbol, filename, title, roundtrip, show)`
+
+Plot BER vs SNR for an array of measured BERs.
+    `bits_per_symbol` is used to look up which SNRs were measured
+    `roundtrip` can be set to false to use only the first half-trip measured BER
+    `filename` set the name of the file the figure is saved as
+    `title` sets a title for the figure
+    `show` can be set to false to only save the figure, not return a pointer to it (useful for scripted plotting)
+"""
+function plot_bers_snr(bers::AbstractArray; bits_per_symbol=2, filename="final_bers.png", title="", roundtrip=true, show=true)
     p = berplot(bers, bits_per_symbol=bits_per_symbol, roundtrip=roundtrip)
     plot!(p, title=title)
     Plots.savefig(p, filename)
@@ -480,6 +491,18 @@ function plot_bers_snr(bers; bits_per_symbol=2, filename="final_bers.png", title
     else
         return nothing
     end
+end
+
+"""
+    `p = plot_bers_snr(results::Dict; kwargs...)`
+
+Looks up the final epoch and plots BER vs SNR for that iteration.
+"""
+function plot_bers_snr(results::Dict; filename="final_bers.png", title="", roundtrip=true, show=true)
+    lastepoch = maximum(collect(keys(results)))
+    row = roundtrip ? 3 : 1
+    bers = results[lastepoch][:ber][row, :, 1]
+    plot_bers_snr(bers; filename, title, roundtrip, show)
 end
 
 

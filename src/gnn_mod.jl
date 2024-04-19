@@ -1,5 +1,6 @@
 # Graph Neural Network [De]Modulator implementation
 
+using GraphNeuralNetworks
 using LinearAlgebra: norm
 using Infiltrator
 using ChainRules: ignore_derivatives
@@ -123,13 +124,13 @@ end
 
 
 """
-Build a GNN model with the given dimensions
+Build a MEGNetConv GNN model with the given dimensions
 
 Parameters:
 - dims: Pair of input and output dimensions
 - layer_dims: Vector of hidden layer dimensions
 """
-function _build_gnn(dims::Pair{Int}, layer_dims, activation_fn_hidden=relu)
+function _build_megnet_gnn(dims::Pair{Int}, layer_dims, activation_fn_hidden=relu)
     # Get dimensions for edge and vertex networks
     din = dims[1]
     dout = dims[2]
@@ -149,6 +150,69 @@ function _build_gnn(dims::Pair{Int}, layer_dims, activation_fn_hidden=relu)
                         Dense(max(in, out), out)))
     end
     Chain([MEGNetConv(ϕe[i], ϕv[i], aggr=mean) for i in eachindex(ϕe)]...)
+end
+
+
+function _build_agnn(dims::Pair{Int}, layer_dims, activation_fn_hidden=relu)
+    return identity
+end
+
+
+function _build_gatv2_gnn(dims::Pair{Int}, layer_dims, activation_fn_hidden=relu)
+    in_dims = vcat([dims.first], layer_dims[1:end-1])
+    out_dims = vcat(layer_dims[2:end], [dims.second])
+    convs = []
+    for (in, out) in zip(in_dims[1:end-1], out_dims[1:end-1])
+        push!(convs, GATv2Conv(in => out, activation_fn_hidden, add_self_loops=true,
+                               dropout=0.5,))
+    end
+    push!(convs, GATv2Conv(in_dims[end] => out_dims[end], bias=false,
+                           add_self_loops=true, dropout=0.5,))
+    Chain(convs...)
+end
+
+
+function _build_edge_gnn(dims::Pair{Int}, layer_dims, activation_fn_hidden=relu)
+    in_dims = vcat([dims.first], layer_dims[1:end-1])
+    out_dims = vcat(layer_dims[2:end], [dims.second])
+    convs = []
+    for (in, out) in zip(in_dims[1:end-1], out_dims[1:end-1])
+        nn = Chain(Dense(2 * in, out, activation_fn_hidden),
+                   Dense(out, out, activation_fn_hidden))
+        push!(convs, EdgeConv(nn, aggr=mean))
+    end
+    nn = Chain(Dense(2 * in_dims[end], out_dims[end], activation_fn_hidden),
+               Dense(out_dims[end], out_dims[end], identity))
+    push!(convs, EdgeConv(nn, aggr=mean))
+    Chain(convs...)
+end
+
+
+function _build_resgated_gnn(dims::Pair{Int}, layer_dims, activation_fn_hidden=relu)
+    in_dims = vcat([dims.first], layer_dims[1:end-1])
+    out_dims = vcat(layer_dims[2:end], [dims.second])
+    convs = []
+    for (in, out) in zip(in_dims[1:end-1], out_dims[1:end-1])
+        push!(convs, ResGatedGraphConv(in => out, activation_fn_hidden,))
+    end
+    push!(convs, ResGatedGraphConv(in_dims[end] => out_dims[end], identity,))
+    Chain(convs...)
+end
+
+
+function _build_transformer_gnn(dims::Pair{Int}, layer_dims, activation_fn_hidden=relu)
+    in_dims = vcat([dims.first], layer_dims[1:end-1])
+    out_dims = vcat(layer_dims[2:end], [dims.second])
+    convs = []
+    for (in, out) in zip(in_dims[1:end-1], out_dims[1:end-1])
+        push!(convs, TransformerConv((in, 0) => out, heads=1, add_self_loops=true,
+                                     skip_connection=false, batch_norm=false,
+                                     ff_channels=0))
+    end
+    push!(convs, TransformerConv((in_dims[end], 0) => out_dims[end], heads=1,
+                                 add_self_loops=true, skip_connection=false,
+                                 batch_norm=false, ff_channels=0))
+    Chain(convs...)
 end
 
 
@@ -172,9 +236,7 @@ function GNNMod(;bits_per_symbol,
         layer_dims = Vector{Int}(hidden_layers)
     end
     # Two stages of the modulator: initial location suggestions followed by nearest-neighbors adjustment
-    μ1 = _build_gnn(Pair(bits_per_symbol, 2), layer_dims, activation_fn_hidden)
-    # μ2 = _build_gnn(Pair(2, 2), layer_dims, activation_fn_hidden)
-    μ = μ1
+    μ = _build_transformer_gnn(bits_per_symbol => 2, layer_dims, activation_fn_hidden)
     # Load weights if specified
     if weights !== nothing
         if isa(weights, Flux.Params)
@@ -218,14 +280,8 @@ get_kwargs(m::GNNMod; include_weights=false) = (;
 Return the non-normalized constellation points of the modulator
 """
 function _unnormed_constellation(mod::GNNMod)
-    mod.μ(mod.graph).x
-    # # Generate initial constellation suggestion
-    # g_suggested = mod.μ[1](mod.graph)
-    # # Select nearest neighbor edges
-    # g_nn = nearest_neighbors_subgraph(g_suggested, 4)
-    # # Refine constellation suggestion
-    # g_final = mod.μ[2](g_nn)
-    # g_final.x
+    g = GNNGraph(mod.graph, ndata=node_features(mod.graph), edata=nothing)
+    mod.μ(g).x
 end
 
 
@@ -357,3 +413,6 @@ function loss(mod::GNNMod; symbols, received_symbols, actions)
     end
     loss
 end
+
+
+# TODO: AGNNConv, EdgeConv, GATv2Conv

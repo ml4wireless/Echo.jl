@@ -42,7 +42,7 @@ If multiple keys are equal, return the leftmost.
 """
 function find_ge(a, key)
     i = bisect_left(a, key)
-    if i == length(a)
+    if i >= length(a)
         return nothing
     else
         return i

@@ -17,7 +17,6 @@ using Crayons
 using Distributions
 using Flux
 using Flux: unsqueeze
-using GraphNeuralNetworks: GNNGraph, MEGNetConv
 using IterTools: product
 using Logging
 using Printf
@@ -697,23 +696,48 @@ end
 ##################################################################################
 # Extras
 ##################################################################################
+"""
+    `isclassic([de]mod)`
+
+Returns true if `mod`/`demod` is a Classic [de]modulator
+"""
 isclassic(::ClassicMod) = true
 isclassic(::ClassicDemod) = true
 isclassic(::Any) = false
 
+"""
+    `isclusterint(demod)`
+
+Returns true if `demod` is a clustering demodulator
+"""
 isclustering(::ClusteringDemod) = true
 isclustering(::Any) = false
 
+"""
+    `isneural([de]mode)`
+
+Returns true if `mod`/`demod` is a neural (i.e. trainable via GD) [de]modulator, including both Neural and GNN modulators
+"""
 isneural(::NeuralMod) = true
 isneural(::NeuralDemod) = true
 isneural(::GNNMod) = true
 isneural(::Any) = false
 
+"""
+    `ismod(m)`
+
+Returns true if `m` is a Modulator
+"""
 ismod(::ClassicMod) = true
 ismod(::NeuralMod) = true
 ismod(::GNNMod) = true
 ismod(::Any) = false
 
+"""
+    `iscuda(md)`
+
+Returns true if `md` is a mod/demod with CUDA data
+"""
 iscuda(m::ClassicMod) = isa(m.rotation, CuArray)
 iscuda(m::NeuralMod) = isa(m.log_std, CuArray)
 iscuda(m::GNNMod) = isa(m.log_std, CuArray)
