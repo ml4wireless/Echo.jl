@@ -81,8 +81,8 @@ struct ClassicMod{V <: AbstractVector{Float32}, M <: AbstractMatrix{Float32}} <:
 end
 
 # Only the rotation field of a ClassicMod struct is trainable
-# but symbol map should also be sent to the desired device
-Flux.@functor ClassicMod (rotation, symbol_map)
+# but only symbol map should be sent to the desired device
+Flux.@functor ClassicMod (symbol_map,)
 Flux.trainable(m::ClassicMod) = m.trainable ? (; rotation=m.rotation,) : (;)
 
 function Base.show(io::IO, m::ClassicMod)
@@ -171,8 +171,8 @@ struct ClassicDemod{V <: AbstractVector{Float32}, M <: AbstractMatrix{Float32}} 
 end
 
 # Only the rotation field of a ClassicDemod struct is trainable
-# but symbol map should also be sent to the desired device
-Flux.@functor ClassicDemod (rotation, symbol_map)
+# but only the symbol map should be sent to the desired device
+Flux.@functor ClassicDemod (symbol_map,)
 Flux.trainable(d::ClassicDemod) = d.trainable ? (; rotation=d.rotation,) : (;)
 
 function Base.show(io::IO, d::ClassicDemod)
@@ -741,10 +741,10 @@ ismod(::Any) = false
 
 Returns true if `md` is a mod/demod with CUDA data
 """
-iscuda(m::ClassicMod) = isa(m.rotation, CuArray)
+iscuda(m::ClassicMod) = isa(m.symbol_map, CuArray)
 iscuda(m::NeuralMod) = isa(m.log_std, CuArray)
 iscuda(m::GNNMod) = isa(m.log_std, CuArray)
-iscuda(d::ClassicDemod) = isa(d.rotation, CuArray)
+iscuda(d::ClassicDemod) = isa(d.symbol_map, CuArray)
 iscuda(d::NeuralDemod) = isa(d.net[1].weight, CuArray)
 iscuda(::ClusteringDemod) = false
 iscuda(::Nothing) = false

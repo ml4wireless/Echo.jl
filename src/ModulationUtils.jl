@@ -308,6 +308,7 @@ end
     `ber = predict_classic_ber_roundtrip(bits_per_symbol, SNR_db)`
 
 Predicts the theoretical bit error rate for a gray coded classic constellation at `SNR_db` for a roundtrip
+Assuming only single-bit errors are likely (~5% BER or less):
 P(error) = P(error, 1st halftrip) + P(error, 2nd halftrip) - P(error, 1st halftrip & 2nd halftrip)
 """
 function predict_classic_ber_roundtrip(bits_per_symbol, SNR_db)::Float32
@@ -322,7 +323,7 @@ end
 Predicts the theoretical symbol error rate for a classic square constellation at `SNR_db` for a roundtrip
 P(error) = P(error, 1st halftrip) + P(error, 2nd halftrip) - 1/4 P(error, 1st halftrip & 2nd halftrip)
 If an error occurs during ht1, w.p. ~1/4 it will be reversed during ht2, assuming SNR is high enough that
-double-bit errors are unlikely.
+double-bit errors are unlikely (~5% SER or less).
 """
 function predict_classic_ser_roundtrip(bits_per_symbol, SNR_db)::Float32
     p_ht = predict_classic_ser(bits_per_symbol, SNR_db)
