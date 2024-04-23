@@ -498,11 +498,11 @@ end
 
 Looks up the final epoch and plots BER vs SNR for that iteration.
 """
-function plot_bers_snr(results::Dict; filename="final_bers.png", title="", roundtrip=true, show=true)
+function plot_bers_snr(results::Dict; bits_per_symbol=2, filename="final_bers.png", title="", roundtrip=true, show=true)
     lastepoch = maximum(collect(keys(results)))
     row = roundtrip ? 3 : 1
     bers = results[lastepoch][:ber][row, :, 1]
-    plot_bers_snr(bers; filename, title, roundtrip, show)
+    plot_bers_snr(bers; bits_per_symbol, filename, title, roundtrip, show)
 end
 
 
