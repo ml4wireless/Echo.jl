@@ -7,7 +7,7 @@ using ChainRules: ignore_derivatives
 
 
 """
-    `D = node_distances(g)`
+    D = node_distances(g)
 
 Returns a matrix of pairwise distances between node values in the graph `g`.
 """
@@ -25,7 +25,7 @@ end
 
 
 """
-    `neighbors, distances = nearest_neighbors(g, k)`
+    neighbors, distances = nearest_neighbors(g, k)
 
 Computes the `k` nearest neighbors for each node in the graph `g`.
 Returns a dictionary containing a vector of neighbor indices for each node,
@@ -46,7 +46,7 @@ end
 
 
 """
-    `g = nearest_neighbors_subgraph(g, k)`
+    g = nearest_neighbors_subgraph(g, k)
 
 Returns a subgraph of `g` containing edges for only the `k` nearest neighbors of each node.
 """
@@ -56,7 +56,7 @@ function nearest_neighbors_subgraph(g, k)
     n = size(g.x, 2)
     source = zeros(Int, num_e)
     target = zeros(Int, num_e)
-    e_vec = zeros(Float32, (1, num_e))
+    e_vec = ones(Float32, (1, num_e))
     ind = 1
     for i in 1:n
         for j in 1:k
@@ -70,36 +70,6 @@ function nearest_neighbors_subgraph(g, k)
     gsub.ndata.x = g.x
     gsub.edata.e = e_vec
     gsub
-end
-
-
-"""
-    `g = random_subgraph(g, ρ)`
-
-Returns a subgraph of `g` containing a random subset of edges between all nodes.
-"""
-function random_subgraph(g, ρ)
-    ignore_derivatives() do
-        n = size(g.x, 2)
-        source = Int[]
-        target = Int[]
-        for i in 1:n
-            for j in i+1:n
-                if rand() < ρ
-                    push!(source, i)
-                    push!(target, j)
-                    push!(source, j)
-                    push!(target, i)
-                end
-            end
-        end
-        gsub = GNNGraph(source, target)
-        gsub.ndata.x = node_features(g)
-        if edge_features(g) !== nothing
-            gsub.edata.e = edge_features(g)
-        end
-        gsub
-    end
 end
 
 
@@ -118,6 +88,12 @@ function _make_graph_for_bps(bps::Int)
     labels_sb = @. Float32(labels_sb) * 2 - 1
     g.ndata.x = labels_sb
     g.edata.e = ones(Float32, (1, g.num_edges))
+    # For bps=6+ only include edges to the nearest 16 neighbors for a grey-coded constellation
+    if bps > 4
+        g.ndata.x = get_symbol_map(bps)
+        g = nearest_neighbors_subgraph(g, 16)
+        g.ndata.x = labels_sb
+    end
     g
 end
 
@@ -311,8 +287,13 @@ Return the non-normalized constellation points of the modulator
 """
 function _unnormed_constellation(mod::GNNMod)
     g = GNNGraph(mod.graph, ndata=node_features(mod.graph), edata=nothing)
-    if mod.bits_per_symbol > 8
-        g = random_subgraph(g, 0.1)
+    if mod.bits_per_symbol > 4
+        @ignore_derivatives() do
+            labels_sb = g.x
+            g.ndata.x = get_symbol_map(mod.bits_per_symbol)
+            g = nearest_neighbors_subgraph(g, 16)
+            g.ndata.x = labels_sb
+        end
     end
     mod.μ(g).x
 end
@@ -446,3 +427,6 @@ function loss(mod::GNNMod; symbols, received_symbols, actions)
     end
     loss
 end
+
+
+# TODO: AGNNConv, EdgeConv, GATv2Conv
