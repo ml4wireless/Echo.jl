@@ -87,13 +87,13 @@ function _make_graph_for_bps(bps::Int)
     labels_sb = integers_to_symbols(labels, bps)
     labels_sb = @. Float32(labels_sb) * 2 - 1
     g.ndata.x = labels_sb
-    g.edata.e = ones(Float32, (1, g.num_edges))
     # For bps=6+ only include edges to the nearest 16 neighbors for a grey-coded constellation
     if bps > 4
         g.ndata.x = get_symbol_map(bps)
         g = nearest_neighbors_subgraph(g, 16)
         g.ndata.x = labels_sb
     end
+    g = GNNGraph(g, ndata=node_features(g), edata=nothing)  # Remove edge features for TransformerConv
     g
 end
 
@@ -165,8 +165,8 @@ end
 
 
 function _build_gatv2_gnn(dims::Pair{Int}, layer_dims, activation_fn_hidden=relu)
-    in_dims = vcat([dims.first], layer_dims[1:end-1])
-    out_dims = vcat(layer_dims[2:end], [dims.second])
+    in_dims = vcat([dims.first], layer_dims)
+    out_dims = vcat(layer_dims, [dims.second])
     convs = []
     for (in, out) in zip(in_dims[1:end-1], out_dims[1:end-1])
         push!(convs, GATv2Conv(in => out, activation_fn_hidden, add_self_loops=true,
@@ -179,8 +179,8 @@ end
 
 
 function _build_edge_gnn(dims::Pair{Int}, layer_dims, activation_fn_hidden=relu)
-    in_dims = vcat([dims.first], layer_dims[1:end-1])
-    out_dims = vcat(layer_dims[2:end], [dims.second])
+    in_dims = vcat([dims.first], layer_dims)
+    out_dims = vcat(layer_dims, [dims.second])
     convs = []
     for (in, out) in zip(in_dims[1:end-1], out_dims[1:end-1])
         nn = Chain(Dense(2 * in, out, activation_fn_hidden),
@@ -195,8 +195,8 @@ end
 
 
 function _build_resgated_gnn(dims::Pair{Int}, layer_dims, activation_fn_hidden=relu)
-    in_dims = vcat([dims.first], layer_dims[1:end-1])
-    out_dims = vcat(layer_dims[2:end], [dims.second])
+    in_dims = vcat([dims.first], layer_dims)
+    out_dims = vcat(layer_dims, [dims.second])
     convs = []
     for (in, out) in zip(in_dims[1:end-1], out_dims[1:end-1])
         push!(convs, ResGatedGraphConv(in => out, activation_fn_hidden,))
@@ -207,8 +207,8 @@ end
 
 
 function _build_transformer_gnn(dims::Pair{Int}, layer_dims, activation_fn_hidden=relu)
-    in_dims = vcat([dims.first], layer_dims[1:end-1])
-    out_dims = vcat(layer_dims[2:end], [dims.second])
+    in_dims = vcat([dims.first], layer_dims)
+    out_dims = vcat(layer_dims, [dims.second])
     convs = []
     for (in, out) in zip(in_dims[1:end-1], out_dims[1:end-1])
         push!(convs, TransformerConv((in, 0) => out, heads=1, add_self_loops=true,
@@ -292,7 +292,7 @@ function _unnormed_constellation(mod::GNNMod)
             labels_sb = g.x
             g.ndata.x = get_symbol_map(mod.bits_per_symbol)
             g = nearest_neighbors_subgraph(g, 16)
-            g.ndata.x = labels_sb
+            g = GNNGraph(g, ndata=labels_sb, edata=nothing)  # Remove edge features for TransformerConv
         end
     end
     mod.μ(g).x
