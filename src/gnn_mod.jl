@@ -90,7 +90,7 @@ function _make_graph_for_bps(bps::Int)
     # For bps=6+ only include edges to the nearest 16 neighbors for a grey-coded constellation
     if bps > 4
         g.ndata.x = get_symbol_map(bps)
-        g = nearest_neighbors_subgraph(g, 16)
+        g = nearest_neighbors_subgraph(g, 32)
         g.ndata.x = labels_sb
     end
     g = GNNGraph(g, ndata=node_features(g), edata=nothing)  # Remove edge features for TransformerConv
@@ -291,7 +291,7 @@ function _unnormed_constellation(mod::GNNMod)
         @ignore_derivatives() do
             labels_sb = g.x
             g.ndata.x = get_symbol_map(mod.bits_per_symbol)
-            g = nearest_neighbors_subgraph(g, 16)
+            g = nearest_neighbors_subgraph(g, 32)
             g = GNNGraph(g, ndata=labels_sb, edata=nothing)  # Remove edge features for TransformerConv
         end
     end

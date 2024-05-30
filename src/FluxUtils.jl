@@ -276,7 +276,7 @@ function loss_ks_uniform(;mod)
     empirical_cdf(x, data) = vec(sum(data' .<= x, dims=2) ./ length(data))
 
     # Rescale constellation points to [0, 1]
-    means = mod.policy.means
+    means = mod.policy.means  # Using means here because `constellation` isn't available
     means_u = (means .- minimum(means, dims=2)) ./ (maximum(means, dims=2) - minimum(means, dims=2))
     # Sort points by each dimension
     idxs = vcat(sortperm.(eachrow(means_u))'...)
