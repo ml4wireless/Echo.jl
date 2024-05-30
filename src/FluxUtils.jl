@@ -17,7 +17,7 @@ using ..Schedules
 
 export get_optimiser_type, get_optimisers, get_schedule_type, get_schedules, get_true_lr
 export Memory, memorize!
-export loss_vanilla_pg, loss_crossentropy, loss_diversity
+export loss_vanilla_pg, loss_crossentropy, loss_diversity, loss_ks_uniform
 export symbols_to_onehot, logits_to_symbols_si, logits_to_symbols_sb, normlogpdf
 
 
@@ -264,6 +264,29 @@ function loss_vanilla_pg(;mod, reward, actions)
     baseline = mean(reward)
     loss = -mean(log_probs .* (reward .- baseline))
     loss
+end
+
+
+"""
+    loss_ks_uniform(;mod)
+
+Kolmogorov-Smirnov loss for modulator
+"""
+function loss_ks_uniform(;mod)
+    empirical_cdf(x, data) = vec(sum(data' .<= x, dims=2) ./ length(data))
+
+    # Rescale constellation points to [0, 1]
+    means = mod.policy.means
+    means_u = (means .- minimum(means, dims=2)) ./ (maximum(means, dims=2) - minimum(means, dims=2))
+    # Sort points by each dimension
+    idxs = vcat(sortperm.(eachrow(means_u))'...)
+    means_sorted = vcat([means_u[i,idx] for (i, idx) in enumerate(eachrow(idxs))]'...)
+    # Compute empirical CDFs
+    x = collect(0:100) / 100
+    cdf_means = [empirical_cdf(x, row) for row in eachrow(means_sorted)]
+    # Compute KS statistic for each dimension
+    ks_stats = [maximum(abs.(cdf_ .- x)) for cdf_ in cdf_means]
+    sum(ks_stats) / length(ks_stats)
 end
 
 
